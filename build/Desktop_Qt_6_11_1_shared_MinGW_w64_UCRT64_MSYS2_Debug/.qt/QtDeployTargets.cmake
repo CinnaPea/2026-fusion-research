@@ -1,0 +1,3 @@
+set(__QT_DEPLOY_TARGET_Visual_Thermal_Concept_FILE F:/qtRoadmap/Visual_Thermal_Concept/build/Desktop_Qt_6_11_1_shared_MinGW_w64_UCRT64_MSYS2_Debug/Visual_Thermal_Concept.exe)
+set(__QT_DEPLOY_TARGET_Visual_Thermal_Concept_TYPE EXECUTABLE)
+set(__QT_DEPLOY_TARGET_Visual_Thermal_Concept_RUNTIME_DLLS C:/msys64/ucrt64/bin/Qt6Widgets.dll;C:/msys64/ucrt64/bin/Qt6Gui.dll;C:/msys64/ucrt64/bin/Qt6Core.dll)
