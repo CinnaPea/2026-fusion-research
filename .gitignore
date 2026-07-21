@@ -1,0 +1,34 @@
+# CLion / JetBrains
+.idea/
+*.iml
+
+# Qt Creator
+.qtcreator/
+*.user
+*.user.*
+
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# CMake-generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+Makefile
+
+# Compiled files
+*.exe
+*.dll
+*.a
+*.lib
+*.o
+*.obj
+*.pdb
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
