@@ -6,25 +6,438 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>600</height>
+    <width>1400</width>
+    <height>850</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>QART-Fusion v0.1 | Khung Nghiên Cứu</string>
   </property>
-  <widget class="QWidget" name="centralwidget"/>
+
+  <!-- Central Widget: Fused Output & Assessment Parameters -->
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="vboxCentral">
+    <property name="leftMargin"><number>4</number></property>
+    <property name="topMargin"><number>4</number></property>
+    <property name="rightMargin"><number>4</number></property>
+    <property name="bottomMargin"><number>4</number></property>
+    <item>
+     <widget class="QGroupBox" name="grpFusedOutput">
+      <property name="title">
+       <string>ĐẦU RA DUNG HỢP: QART-Fusion</string>
+      </property>
+      <layout class="QVBoxLayout" name="vboxFusedView">
+       <property name="leftMargin"><number>4</number></property>
+       <property name="topMargin"><number>4</number></property>
+       <property name="rightMargin"><number>4</number></property>
+       <property name="bottomMargin"><number>4</number></property>
+       <item>
+        <widget class="QLabel" name="lblFusedView">
+         <property name="minimumSize"><size><width>400</width><height>300</height></size></property>
+         <property name="frameShape"><enum>QFrame::Box</enum></property>
+         <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+         <property name="text"><string/></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="grpAssessmentParams">
+      <property name="title">
+       <string>THỐNG SỐ ĐÁNH GIÁ</string>
+      </property>
+      <layout class="QVBoxLayout" name="vboxAssessment">
+       <property name="leftMargin"><number>4</number></property>
+       <property name="topMargin"><number>4</number></property>
+       <property name="rightMargin"><number>4</number></property>
+       <property name="bottomMargin"><number>4</number></property>
+       <item>
+        <widget class="QLabel" name="lblLatencyTitle">
+         <property name="text"><string>Độ Trễ Xử Lý (ms)</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="frameLatencyPlot">
+         <property name="minimumSize"><size><width>0</width><height>60</height></size></property>
+         <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+         <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="lblQualityTitle">
+         <property name="text"><string>Chất Lượng Dung Hợp (SSIM, Độ Dốc)</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="frameQualityPlot">
+         <property name="minimumSize"><size><width>0</width><height>60</height></size></property>
+         <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+         <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+
+  <!-- Menu Bar -->
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>800</width>
-     <height>25</height>
+     <width>1400</width>
+     <height>24</height>
     </rect>
    </property>
+   <widget class="QMenu" name="menuTep"><property name="title"><string>Tệp</string></property></widget>
+   <widget class="QMenu" name="menuSua"><property name="title"><string>Sửa</string></property></widget>
+   <widget class="QMenu" name="menuHienThi"><property name="title"><string>Hiển thị</string></property></widget>
+   <widget class="QMenu" name="menuCuaSo"><property name="title"><string>Cửa sổ</string></property></widget>
+   <widget class="QMenu" name="menuTroGiup"><property name="title"><string>Trợ giúp</string></property></widget>
+   <addaction name="menuTep"/>
+   <addaction name="menuSua"/>
+   <addaction name="menuHienThi"/>
+   <addaction name="menuCuaSo"/>
+   <addaction name="menuTroGiup"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
+
+  <!-- Left Dock Widgets (Width capped to 320px) -->
+
+  <!-- Dock 1: RGB Input -->
+  <widget class="QDockWidget" name="dockRgbInput">
+   <property name="maximumSize">
+    <size><width>320</width><height>16777215</height></size>
+   </property>
+   <property name="windowTitle">
+    <string>Dòng Đầu Vào 1: Ảnh Màu (RGB)</string>
+   </property>
+   <attribute name="dockWidgetArea"><number>1</number></attribute>
+   <widget class="QWidget" name="dockRgbContents">
+    <layout class="QVBoxLayout" name="vboxRgb">
+     <property name="leftMargin"><number>4</number></property>
+     <property name="topMargin"><number>4</number></property>
+     <property name="rightMargin"><number>4</number></property>
+     <property name="bottomMargin"><number>4</number></property>
+     <item>
+      <widget class="QLabel" name="lblRgbView">
+       <property name="minimumSize"><size><width>200</width><height>130</height></size></property>
+       <property name="frameShape"><enum>QFrame::Box</enum></property>
+       <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+       <property name="text"><string/></property>
+       <property name="alignment"><set>Qt::AlignCenter</set></property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+
+  <!-- Dock 2: Thermal IR Input -->
+  <widget class="QDockWidget" name="dockIrInput">
+   <property name="maximumSize">
+    <size><width>320</width><height>16777215</height></size>
+   </property>
+   <property name="windowTitle">
+    <string>Dòng Đầu Vào 2: Ảnh Nhiệt (IR)</string>
+   </property>
+   <attribute name="dockWidgetArea"><number>1</number></attribute>
+   <widget class="QWidget" name="dockIrContents">
+    <layout class="QVBoxLayout" name="vboxIr">
+     <property name="leftMargin"><number>4</number></property>
+     <property name="topMargin"><number>4</number></property>
+     <property name="rightMargin"><number>4</number></property>
+     <property name="bottomMargin"><number>4</number></property>
+     <item>
+      <widget class="QLabel" name="lblIrView">
+       <property name="minimumSize"><size><width>200</width><height>130</height></size></property>
+       <property name="frameShape"><enum>QFrame::Box</enum></property>
+       <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+       <property name="text"><string/></property>
+       <property name="alignment"><set>Qt::AlignCenter</set></property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+
+  <!-- Dock 3: Thermal Enhancement -->
+  <widget class="QDockWidget" name="dockThermalEnhancement">
+   <property name="maximumSize">
+    <size><width>320</width><height>16777215</height></size>
+   </property>
+   <property name="windowTitle">
+    <string>CẢI THIỆN ÁNH NHIỆT</string>
+   </property>
+   <attribute name="dockWidgetArea"><number>1</number></attribute>
+   <widget class="QWidget" name="dockThermalEnhanceContents">
+    <layout class="QVBoxLayout" name="vboxThermalEnhance">
+     <property name="leftMargin"><number>4</number></property>
+     <property name="topMargin"><number>4</number></property>
+     <property name="rightMargin"><number>4</number></property>
+     <property name="bottomMargin"><number>4</number></property>
+     <item>
+      <layout class="QHBoxLayout" name="hboxThCtrl">
+       <item>
+        <widget class="QComboBox" name="comboMsgf">
+         <item><property name="text"><string>MSGF</string></property></item>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnControl">
+         <property name="text"><string>Control</string></property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblThermalEnhanceView">
+       <property name="minimumSize"><size><width>200</width><height>120</height></size></property>
+       <property name="frameShape"><enum>QFrame::Box</enum></property>
+       <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+       <property name="text"><string/></property>
+       <property name="alignment"><set>Qt::AlignCenter</set></property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+
+  <!-- Dock 4: Image Registration -->
+  <widget class="QDockWidget" name="dockImageRegistration">
+   <property name="maximumSize">
+    <size><width>320</width><height>16777215</height></size>
+   </property>
+   <property name="windowTitle">
+    <string>ĐĂNG KÝ ÁNH</string>
+   </property>
+   <attribute name="dockWidgetArea"><number>1</number></attribute>
+   <widget class="QWidget" name="dockRegistrationContents">
+    <layout class="QVBoxLayout" name="vboxRegistration">
+     <property name="leftMargin"><number>4</number></property>
+     <property name="topMargin"><number>4</number></property>
+     <property name="rightMargin"><number>4</number></property>
+     <property name="bottomMargin"><number>4</number></property>
+     <item>
+      <widget class="QLabel" name="lblRegistrationView">
+       <property name="minimumSize"><size><width>200</width><height>120</height></size></property>
+       <property name="frameShape"><enum>QFrame::Box</enum></property>
+       <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
+       <property name="text"><string/></property>
+       <property name="alignment"><set>Qt::AlignCenter</set></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblConfidence">
+       <property name="text"><string>Độ Tin Cậy Đăng Ký:</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboDetailLevel">
+       <item><property name="text"><string>Sơ bộ/Chi tiết</string></property></item>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+
+  <!-- Dock 5: Dual Thermal Enhance -->
+  <widget class="QDockWidget" name="dockDualThermalEnhance">
+   <property name="maximumSize">
+    <size><width>320</width><height>16777215</height></size>
+   </property>
+   <property name="windowTitle">
+    <string>CẢI THIỆN ÁNH HAI NHIỆT</string>
+   </property>
+   <attribute name="dockWidgetArea"><number>1</number></attribute>
+   <widget class="QWidget" name="dockDualThermalContents">
+    <layout class="QVBoxLayout" name="vboxDualThermal">
+     <item>
+      <widget class="QCheckBox" name="chkMsgf">
+       <property name="text"><string>Thuật toán cải thiện MSGF</string></property>
+       <property name="checked"><bool>false</bool></property>
+      </widget>
+     </item>
+     <!-- Filter A -->
+     <item>
+      <layout class="QHBoxLayout" name="hl_paramA">
+       <item><widget class="QLabel" name="lblParamA"><property name="text"><string>Thông số bộ lọc A</string></property></widget></item>
+       <item><widget class="QSlider" name="sliderParamA"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="value"><number>0</number></property></widget></item>
+       <item><widget class="QSpinBox" name="spinParamA"><property name="value"><number>0</number></property></widget></item>
+      </layout>
+     </item>
+     <!-- Filter B -->
+     <item>
+      <layout class="QHBoxLayout" name="hl_paramB">
+       <item><widget class="QLabel" name="lblParamB"><property name="text"><string>Thông số bộ lọc B</string></property></widget></item>
+       <item><widget class="QSlider" name="sliderParamB"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="value"><number>0</number></property></widget></item>
+       <item><widget class="QSpinBox" name="spinParamB"><property name="value"><number>0</number></property></widget></item>
+      </layout>
+     </item>
+     <!-- Filter C -->
+     <item>
+      <layout class="QHBoxLayout" name="hl_paramC">
+       <item><widget class="QLabel" name="lblParamC"><property name="text"><string>Thông số bộ lọc C</string></property></widget></item>
+       <item><widget class="QSlider" name="sliderParamC"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="value"><number>0</number></property></widget></item>
+       <item><widget class="QSpinBox" name="spinParamC"><property name="value"><number>0</number></property></widget></item>
+      </layout>
+     </item>
+     <!-- Start Filter -->
+     <item>
+      <layout class="QHBoxLayout" name="hl_startFilter">
+       <item><widget class="QLabel" name="lblStartFilter"><property name="text"><string>Bắt đầu lọc</string></property></widget></item>
+       <item><widget class="QSlider" name="sliderStartFilter"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="value"><number>0</number></property></widget></item>
+       <item><widget class="QSpinBox" name="spinStartFilter"><property name="value"><number>0</number></property></widget></item>
+      </layout>
+     </item>
+     <!-- Filter D -->
+     <item>
+      <layout class="QHBoxLayout" name="hl_paramD">
+       <item><widget class="QLabel" name="lblParamD"><property name="text"><string>Thông số bộ lọc D</string></property></widget></item>
+       <item><widget class="QSlider" name="sliderParamD"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="value"><number>0</number></property></widget></item>
+       <item><widget class="QSpinBox" name="spinParamD"><property name="value"><number>0</number></property></widget></item>
+      </layout>
+     </item>
+     <!-- Target FPS -->
+     <item>
+      <layout class="QHBoxLayout" name="hl_targetFps">
+       <item><widget class="QLabel" name="lblTargetFps"><property name="text"><string>FPS Mục Tiêu</string></property></widget></item>
+       <item><widget class="QSlider" name="sliderTargetFps"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="value"><number>0</number></property></widget></item>
+       <item><widget class="QSpinBox" name="spinTargetFps"><property name="value"><number>0</number></property></widget></item>
+      </layout>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+
+  <!-- Dock 6: System Log -->
+  <widget class="QDockWidget" name="dockSystemLog">
+   <property name="maximumSize">
+    <size><width>320</width><height>16777215</height></size>
+   </property>
+   <property name="windowTitle">
+    <string>Nhật Ký Hệ Thống</string>
+   </property>
+   <attribute name="dockWidgetArea"><number>1</number></attribute>
+   <widget class="QWidget" name="dockLogContents">
+    <layout class="QVBoxLayout" name="vboxLog">
+     <property name="leftMargin"><number>2</number></property>
+     <property name="topMargin"><number>2</number></property>
+     <property name="rightMargin"><number>2</number></property>
+     <property name="bottomMargin"><number>2</number></property>
+     <item>
+      <widget class="QTextEdit" name="txtSystemLog">
+       <property name="readOnly"><bool>true</bool></property>
+       <property name="plainText"><string/></property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+
+  <!-- Right Dock Widgets (Width capped to 320px) -->
+
+  <!-- Dock 7: Framework Settings -->
+  <widget class="QDockWidget" name="dockFrameworkSettings">
+   <property name="maximumSize">
+    <size><width>320</width><height>16777215</height></size>
+   </property>
+   <property name="windowTitle">
+    <string>CÀI ĐẶT KHUNG</string>
+   </property>
+   <attribute name="dockWidgetArea"><number>2</number></attribute>
+   <widget class="QWidget" name="dockSettingsContents">
+    <layout class="QVBoxLayout" name="vboxSettings">
+     <item>
+      <widget class="QLabel" name="lblEnhanceMode">
+       <property name="text"><string>Chế độ Cải Thiện</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboEnhanceMode">
+       <item><property name="text"><string>MSGF</string></property></item>
+       <item><property name="text"><string>RGF-CLAHE</string></property></item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblRegBackbone">
+       <property name="text"><string>Xương Sống Đăng Ký</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboRegBackbone">
+       <item><property name="text"><string>BusRef</string></property></item>
+       <item><property name="text"><string>Global</string></property></item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblFusionStrategy">
+       <property name="text"><string>Chiến Lược Dung Hợp</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboFusionStrategy">
+       <item><property name="text"><string>Có Điều Kiện Độ Tin Cậy</string></property></item>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+
+  <!-- Dock 8: Realtime Controller -->
+  <widget class="QDockWidget" name="dockRealtimeController">
+   <property name="maximumSize">
+    <size><width>320</width><height>16777215</height></size>
+   </property>
+   <property name="windowTitle">
+    <string>BỘ ĐIỀU KHIỂN THỜI GIAN THỰC</string>
+   </property>
+   <attribute name="dockWidgetArea"><number>2</number></attribute>
+   <widget class="QWidget" name="dockRealtimeContents">
+    <layout class="QVBoxLayout" name="vboxRealtime">
+     <item>
+      <layout class="QHBoxLayout" name="hl_modes">
+       <item>
+        <widget class="QPushButton" name="btnFast">
+         <property name="text"><string>NHANH</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnBalanced">
+         <property name="text"><string>CÂN BẰNG</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnQuality">
+         <property name="text"><string>CHẤT LƯỢNG</string></property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblTimeBudget">
+       <property name="text"><string>Ngân Sách Thời Gian</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QSlider" name="sliderTimeBudget">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="value"><number>0</number></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblFpsTarget">
+       <property name="text"><string>FPS Mục Tiêu:</string></property>
+       <property name="alignment"><set>Qt::AlignCenter</set></property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+
  </widget>
  <resources/>
  <connections/>
