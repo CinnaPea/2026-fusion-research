@@ -399,15 +399,20 @@ PairValidationPolicy buildValidationPolicy(
         expectedVisibleDimensions,
     const std::optional<ImageDimensions>&
         expectedThermalDimensions
-)
-{
-
-    return PairValidationPolicy(
-        visibleExtensions,
-        thermalExtensions,
-        expectedVisibleDimensions,
-        expectedThermalDimensions
-    );
+)   {
+    try {
+        return PairValidationPolicy(
+            visibleExtensions,
+            thermalExtensions,
+            expectedVisibleDimensions,
+            expectedThermalDimensions
+        );
+    }
+    catch (const std::invalid_argument&) {
+        throw DatasetConfigurationError(
+            "Dataset validation policy is invalid."
+        );
+    }
 }
 
 void validateExactFieldSet(
@@ -611,20 +616,30 @@ JsonDatasetConfigurationLoader::load(
                 configuration
             );
 
-    return DatasetConfiguration(
-        schemaVersion,
-        datasetId,
-        std::filesystem::path(
-            datasetRoot
-        ),
-        manifestRelativePath,
-        std::move(
-            supportedPartitions
-        ),
-        std::move(
-            validationPolicy
-        )
-    );
+    try {
+        return DatasetConfiguration(
+            schemaVersion,
+            datasetId,
+            std::filesystem::path(
+                datasetRoot
+            ),
+            manifestRelativePath,
+            std::move(
+                supportedPartitions
+            ),
+            std::move(
+                validationPolicy
+            )
+        );
+    }
+    catch (const DatasetConfigurationError&) {
+        throw;
+    }
+    catch (const std::invalid_argument&) {
+        throw DatasetConfigurationError(
+            "Dataset configuration contains invalid values."
+        );
+    }
 }
 
 } // namespace qart::core::configuration

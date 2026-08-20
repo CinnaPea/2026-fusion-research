@@ -11,6 +11,19 @@ find_package(nlohmann_json CONFIG REQUIRED)
 
 qt_standard_project_setup()
 
+option(
+        QART_ENABLE_REAL_DATA_TESTS
+        "Enable parity tests requiring the external QART dataset root"
+        OFF
+)
+
+set(
+        QART_REAL_DATA_ROOT
+        ""
+        CACHE PATH
+        "Absolute shared QART dataset root used by real-data parity tests"
+)
+
 
 # ---------------------------------------------------------------------------
 # QART-Fusion Qt-independent core
@@ -667,6 +680,182 @@ if(BUILD_TESTING)
             NAME OpenCvPreviewRendererContract
             COMMAND test_opencv_preview_renderer
     )
+
+    if(QART_ENABLE_REAL_DATA_TESTS)
+
+        if(NOT QART_REAL_DATA_ROOT)
+            message(
+                    FATAL_ERROR
+                    "QART_ENABLE_REAL_DATA_TESTS is ON but "
+                    "QART_REAL_DATA_ROOT is empty."
+            )
+        endif()
+
+        add_executable(
+                test_llvip_real_parity
+                tests/parity/test_llvip_real_parity.cpp
+        )
+
+        target_link_libraries(
+                test_llvip_real_parity
+                PRIVATE
+                qart_core
+        )
+
+        add_test(
+                NAME LLVIPRealDataParity
+                COMMAND
+                test_llvip_real_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                LLVIPRealDataParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;llvip"
+        )
+
+        add_executable(
+                test_llvip_real_preview_parity
+                tests/parity/test_llvip_real_preview_parity.cpp
+        )
+
+        target_include_directories(
+                test_llvip_real_preview_parity
+                PRIVATE
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(
+                test_llvip_real_preview_parity
+                PRIVATE
+                qart_core
+                ${OpenCV_LIBS}
+        )
+
+        add_test(
+                NAME LLVIPRealPreviewParity
+                COMMAND
+                test_llvip_real_preview_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                LLVIPRealPreviewParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;llvip;preview"
+        )
+
+        add_executable(
+                test_msrs_real_parity
+                tests/parity/test_msrs_real_parity.cpp
+        )
+
+        target_link_libraries(
+                test_msrs_real_parity
+                PRIVATE
+                qart_core
+        )
+
+        add_test(
+                NAME MSRSRealDataParity
+                COMMAND
+                test_msrs_real_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                MSRSRealDataParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;msrs"
+        )
+
+        add_executable(
+                test_msrs_real_preview_parity
+                tests/parity/test_msrs_real_preview_parity.cpp
+        )
+
+        target_include_directories(
+                test_msrs_real_preview_parity
+                PRIVATE
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(
+                test_msrs_real_preview_parity
+                PRIVATE
+                qart_core
+                ${OpenCV_LIBS}
+        )
+
+        add_test(
+                NAME MSRSRealPreviewParity
+                COMMAND
+                test_msrs_real_preview_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                MSRSRealPreviewParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;msrs;preview"
+        )
+
+        add_executable(
+                test_roadscene_real_parity
+                tests/parity/test_roadscene_real_parity.cpp
+        )
+
+        target_link_libraries(
+                test_roadscene_real_parity
+                PRIVATE
+                qart_core
+        )
+
+        add_test(
+                NAME RoadSceneRealDataParity
+                COMMAND
+                test_roadscene_real_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                RoadSceneRealDataParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;roadscene"
+        )
+
+        add_executable(
+                test_roadscene_real_preview_parity
+                tests/parity/test_roadscene_real_preview_parity.cpp
+        )
+
+        target_include_directories(
+                test_roadscene_real_preview_parity
+                PRIVATE
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(
+                test_roadscene_real_preview_parity
+                PRIVATE
+                qart_core
+                ${OpenCV_LIBS}
+        )
+
+        add_test(
+                NAME RoadSceneRealPreviewParity
+                COMMAND
+                test_roadscene_real_preview_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                RoadSceneRealPreviewParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;roadscene;preview"
+        )
+    endif()
 endif()
 
 
