@@ -6,21 +6,299 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>600</height>
+    <width>1100</width>
+    <height>720</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>QArt::Core - Xem &amp; Kiểm tra Cặp ảnh (Visual - Thermal Pairing)</string>
   </property>
-  <widget class="QWidget" name="centralwidget"/>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="mainLayout">
+    <!-- Top Toolbar Bar -->
+    <item>
+     <layout class="QHBoxLayout" name="topBarLayout">
+      <item>
+       <widget class="QLabel" name="lblDirTitle">
+        <property name="text">
+         <string>Thư mục dữ liệu:</string>
+        </property>
+        <property name="font">
+         <font>
+          <bold>true</bold>
+         </font>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="txtDatasetDir">
+        <property name="placeholderText">
+         <string>Chọn thư mục chứa bộ dữ liệu (LLVIP, MSRS, RoadScene...)...</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnBrowseDataset">
+        <property name="text">
+         <string>📂 Chọn thư mục dữ liệu</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>170</width>
+          <height>30</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnSelectSingleImage">
+        <property name="text">
+         <string>🖼️ Chọn 1 ảnh (Tự động bắt cặp)</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>220</width>
+          <height>30</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <!-- Main Center Splitter Area -->
+    <item>
+     <layout class="QHBoxLayout" name="contentLayout">
+      <!-- Left Panel: Pair List -->
+      <item>
+       <widget class="QGroupBox" name="grpPairList">
+        <property name="maximumSize">
+         <size>
+          <width>280</width>
+          <height>16777215</height>
+         </size>
+        </property>
+        <property name="title">
+         <string>Danh sách Cặp ảnh</string>
+        </property>
+        <layout class="QVBoxLayout" name="pairListLayout">
+         <item>
+          <widget class="QLineEdit" name="txtSearchPair">
+           <property name="placeholderText">
+            <string>🔍 Tìm theo ID / Tên stem...</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QListWidget" name="lstImagePairs"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="lblPairCount">
+           <property name="text">
+            <string>Tổng số: 0 cặp ảnh</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+           <property name="styleSheet">
+            <string>color: #666666; font-size: 12px;</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <!-- Right Panel: Dual Image Viewer -->
+      <item>
+       <widget class="QGroupBox" name="grpImageViewer">
+        <property name="title">
+         <string>Hiển thị Cặp ảnh Tương ứng (Ảnh màu A1 - Ảnh nhiệt A2)</string>
+        </property>
+        <layout class="QVBoxLayout" name="imageViewerLayout">
+         <!-- Status Banner -->
+         <item>
+          <layout class="QHBoxLayout" name="statusBannerLayout">
+           <item>
+            <widget class="QLabel" name="lblCurrentPairId">
+             <property name="text">
+              <string>Cặp ảnh: Chưa chọn</string>
+             </property>
+             <property name="font">
+              <font>
+               <pointsize>13</pointsize>
+               <bold>true</bold>
+              </font>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="spacerStatus">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QLabel" name="lblPairStatus">
+             <property name="text">
+              <string>Trạng thái: --</string>
+             </property>
+             <property name="styleSheet">
+              <string>background-color: #e0e0e0; color: #333333; padding: 4px 10px; border-radius: 4px; font-weight: bold;</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <!-- Dual Image Frames Side-by-Side -->
+         <item>
+          <layout class="QHBoxLayout" name="dualImageDisplayLayout">
+           <!-- Visible Image Frame (A1) -->
+           <item>
+            <widget class="QGroupBox" name="grpVisibleImage">
+             <property name="title">
+              <string>📸 Ảnh Màu / Quan sát (Visible - A1)</string>
+             </property>
+             <layout class="QVBoxLayout" name="visibleFrameLayout">
+              <item>
+               <widget class="QLabel" name="lblVisibleImage">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignCenter</set>
+                </property>
+                <property name="text">
+                 <string>Chưa có ảnh màu</string>
+                </property>
+                <property name="styleSheet">
+                 <string>background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="lblVisibleInfo">
+                <property name="text">
+                 <string>Đường dẫn: -- | Kích thước: --</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+                <property name="styleSheet">
+                 <string>color: #555555; font-size: 11px;</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <!-- Thermal Image Frame (A2) -->
+           <item>
+            <widget class="QGroupBox" name="grpThermalImage">
+             <property name="title">
+              <string>🔥 Ảnh Nhiệt / Hồng ngoại (Thermal - A2)</string>
+             </property>
+             <layout class="QVBoxLayout" name="thermalFrameLayout">
+              <item>
+               <widget class="QLabel" name="lblThermalImage">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignCenter</set>
+                </property>
+                <property name="text">
+                 <string>Chưa có ảnh nhiệt</string>
+                </property>
+                <property name="styleSheet">
+                 <string>background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="lblThermalInfo">
+                <property name="text">
+                 <string>Đường dẫn: -- | Kích thước: --</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+                <property name="styleSheet">
+                 <string>color: #555555; font-size: 11px;</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <!-- Bottom Status Bar & Export Button -->
+    <item>
+     <layout class="QHBoxLayout" name="bottomBarLayout">
+      <item>
+       <widget class="QLabel" name="lblSystemStatus">
+        <property name="text">
+         <string>Sẵn sàng. Chọn 1 ảnh hoặc thư mục dữ liệu để tự động hiển thị cặp tương ứng.</string>
+        </property>
+        <property name="styleSheet">
+         <string>color: #444444;</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="bottomSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnExportCsv">
+        <property name="text">
+         <string>📊 Xuất báo cáo Manifest CSV</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>200</width>
+          <height>32</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>800</width>
-     <height>25</height>
+     <width>1100</width>
+     <height>24</height>
     </rect>
    </property>
   </widget>

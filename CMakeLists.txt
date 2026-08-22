@@ -161,8 +161,14 @@ qt_add_executable(Visual_Thermal_Concept
         mainwindow.ui
 )
 
+target_include_directories(Visual_Thermal_Concept
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
 target_link_libraries(Visual_Thermal_Concept
         PRIVATE
+        qart_core
         Qt::Core
         Qt::Widgets
 )
