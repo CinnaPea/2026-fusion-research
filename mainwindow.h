@@ -53,6 +53,9 @@ private:
     std::filesystem::path resolveDatasetRoot(const std::filesystem::path &inputPath) const;
 
     [[nodiscard]]
+    qart::core::domain::validation::PairValidationStatus safeParseStatus(const std::string &statusStr) const;
+
+    [[nodiscard]]
     QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status) const;
 
     [[nodiscard]]
