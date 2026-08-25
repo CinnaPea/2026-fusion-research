@@ -6,16 +6,16 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1100</width>
-    <height>720</height>
+    <width>1180</width>
+    <height>760</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>QArt::Core - Xem &amp; Kiểm tra Cặp ảnh (Visual - Thermal Pairing)</string>
+   <string>QArt::Core - Visual-Thermal Dataset Inspector &amp; Validation (Phase 1.1)</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="mainLayout">
-    <!-- Top Toolbar Bar -->
+    <!-- Top Toolbar Bar: Directory Selection -->
     <item>
      <layout class="QHBoxLayout" name="topBarLayout">
       <item>
@@ -65,7 +65,119 @@
       </item>
      </layout>
     </item>
-    <!-- Main Center Splitter Area -->
+
+    <!-- Filter & Mode Bar -->
+    <item>
+     <layout class="QHBoxLayout" name="filterBarLayout">
+      <item>
+       <widget class="QLabel" name="lblDatasetLabel">
+        <property name="text">
+         <string>Dataset:</string>
+        </property>
+        <property name="font">
+         <font>
+          <bold>true</bold>
+         </font>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="cbDatasetSelect">
+        <property name="minimumSize">
+         <size>
+          <width>180</width>
+          <height>26</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="lblPartitionLabel">
+        <property name="text">
+         <string>Partition:</string>
+        </property>
+        <property name="font">
+         <font>
+          <bold>true</bold>
+         </font>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="cbPartitionSelect">
+        <property name="minimumSize">
+         <size>
+          <width>140</width>
+          <height>26</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="spacerFilter">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QLabel" name="lblViewModeLabel">
+        <property name="text">
+         <string>Chế độ xem:</string>
+        </property>
+        <property name="font">
+         <font>
+          <bold>true</bold>
+         </font>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="cbViewMode">
+        <property name="minimumSize">
+         <size>
+          <width>230</width>
+          <height>26</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="lblSampleCountLabel">
+        <property name="text">
+         <string>Số mẫu/partition:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSpinBox" name="spnSampleCount">
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>500</number>
+        </property>
+        <property name="value">
+         <number>5</number>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>60</width>
+          <height>26</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+
+    <!-- Main Center Area -->
     <item>
      <layout class="QHBoxLayout" name="contentLayout">
       <!-- Left Panel: Pair List -->
@@ -73,7 +185,7 @@
        <widget class="QGroupBox" name="grpPairList">
         <property name="maximumSize">
          <size>
-          <width>280</width>
+          <width>320</width>
           <height>16777215</height>
          </size>
         </property>
@@ -100,7 +212,7 @@
             <set>Qt::AlignCenter</set>
            </property>
            <property name="styleSheet">
-            <string>color: #666666; font-size: 12px;</string>
+            <string>color: #666666; font-size: 12px; font-weight: bold;</string>
            </property>
           </widget>
          </item>
@@ -116,40 +228,58 @@
         <layout class="QVBoxLayout" name="imageViewerLayout">
          <!-- Status Banner -->
          <item>
-          <layout class="QHBoxLayout" name="statusBannerLayout">
+          <layout class="QVBoxLayout" name="statusBannerContainerLayout">
            <item>
-            <widget class="QLabel" name="lblCurrentPairId">
-             <property name="text">
-              <string>Cặp ảnh: Chưa chọn</string>
-             </property>
-             <property name="font">
-              <font>
-               <pointsize>13</pointsize>
-               <bold>true</bold>
-              </font>
-             </property>
-            </widget>
+            <layout class="QHBoxLayout" name="statusBannerLayout">
+             <item>
+              <widget class="QLabel" name="lblCurrentPairId">
+               <property name="text">
+                <string>Cặp ảnh: Chưa chọn</string>
+               </property>
+               <property name="font">
+                <font>
+                 <pointsize>13</pointsize>
+                 <bold>true</bold>
+                </font>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="spacerStatus">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+             <item>
+              <widget class="QLabel" name="lblPairStatus">
+               <property name="text">
+                <string>Trạng thái: --</string>
+               </property>
+               <property name="styleSheet">
+                <string>background-color: #e0e0e0; color: #333333; padding: 4px 10px; border-radius: 4px; font-weight: bold;</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
+           <!-- Detailed Validation Message -->
            <item>
-            <spacer name="spacerStatus">
-             <property name="orientation">
-              <enum>Qt::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>40</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
-           </item>
-           <item>
-            <widget class="QLabel" name="lblPairStatus">
+            <widget class="QLabel" name="lblPairStatusMessage">
              <property name="text">
-              <string>Trạng thái: --</string>
+              <string/>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
              </property>
              <property name="styleSheet">
-              <string>background-color: #e0e0e0; color: #333333; padding: 4px 10px; border-radius: 4px; font-weight: bold;</string>
+              <string>color: #444444; font-size: 11px; margin-top: 2px;</string>
              </property>
             </widget>
            </item>
@@ -297,7 +427,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1100</width>
+     <width>1180</width>
      <height>24</height>
     </rect>
    </property>
