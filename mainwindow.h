@@ -6,9 +6,13 @@
 #include <QLabel>
 #include <QString>
 #include <filesystem>
+#include <map>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include "core/domain/datasets/dataset_pair.h"
+#include "core/domain/validation/pair_validation_policy.h"
 #include "core/domain/validation/pair_validation_result.h"
 #include "core/domain/validation/pair_validation_status.h"
 #include "core/manifests/validation_manifest_row.h"
@@ -19,6 +23,12 @@ namespace Ui {
 class MainWindow;
 }
 QT_END_NAMESPACE
+
+struct PairItemEntry {
+    qart::core::domain::datasets::DatasetPair pair;
+    std::optional<qart::core::domain::validation::PairValidationResult> validationResult;
+    QString sourceTag; // "ALL", "AUTO", "MANUAL"
+};
 
 class MainWindow : public QMainWindow
 {
@@ -41,19 +51,31 @@ private slots:
     void onPartitionChanged(int index);
     void onViewModeChanged(int index);
     void onSampleCountChanged(int value);
+    void onFullValidationClicked();
+    void onAddToQueueClicked();
+    void onClearQueueClicked();
 
 private:
     void setupUiControls();
     void loadDatasetFromDirectory(const QString &dirPath);
     void applyFiltersAndModes();
-    void displayPair(const qart::core::manifests::ValidationManifestRow &row);
-    void renderImageToLabel(QLabel *label, const QString &imagePath, bool isSuccess);
+    void displayPair(const PairItemEntry &entry);
+    void renderImageToLabel(QLabel *label, const QString &imagePath);
 
     [[nodiscard]]
     std::filesystem::path resolveDatasetRoot(const std::filesystem::path &inputPath) const;
 
     [[nodiscard]]
-    qart::core::domain::validation::PairValidationStatus safeParseStatus(const std::string &statusStr) const;
+    qart::core::domain::validation::PairValidationPolicy
+    getDatasetValidationPolicy(const std::string &datasetId) const;
+
+    [[nodiscard]]
+    qart::core::domain::validation::PairValidationResult
+    getOrValidatePair(const qart::core::domain::datasets::DatasetPair &pair);
+
+    [[nodiscard]]
+    qart::core::domain::validation::PairValidationStatus
+    safeParseStatus(const std::string &statusStr) const;
 
     [[nodiscard]]
     QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status) const;
@@ -66,8 +88,22 @@ private:
 
     Ui::MainWindow *ui;
     std::filesystem::path datasetRoot_;
-    std::vector<qart::core::domain::validation::PairValidationResult> allValidationResults_;
+
+    // Fast-loading discovered dataset pairs
+    std::vector<qart::core::domain::datasets::DatasetPair> allDiscoveredPairs_;
+
+    // On-demand validation cache by pairId
+    std::map<std::string, qart::core::domain::validation::PairValidationResult> validatedResultsCache_;
+
+    // Currently filtered and displayed item entries
+    std::vector<PairItemEntry> displayedItems_;
+
+    // Manual Selection Queue (Mode C)
+    std::vector<qart::core::domain::datasets::DatasetPair> manualSelectionQueue_;
+
+    // Export rows
     std::vector<qart::core::manifests::ValidationManifestRow> manifestRows_;
+
     QString currentDatasetId_;
     bool isUpdatingControls_ = false;
 };
