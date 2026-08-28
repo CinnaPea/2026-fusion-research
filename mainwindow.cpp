@@ -654,12 +654,21 @@ void MainWindow::renderImageToLabel(QLabel *label, const QString &imagePath)
             return;
         }
 
-        // Use parent container contentsRect to strictly avoid expanding the layout/window
-        QWidget *container = label->parentWidget();
-        QSize containerSize = container ? container->contentsRect().size() : QSize(400, 300);
+        // Use actual label size so pixmap fits completely inside label without clipping
+        QSize targetSize = label->size();
+        if (targetSize.width() < 100 || targetSize.height() < 100) {
+            QWidget *container = label->parentWidget();
+            if (container && container->contentsRect().width() > 100 && container->contentsRect().height() > 100) {
+                targetSize = container->contentsRect().size();
+                targetSize.setWidth(std::max(100, targetSize.width() - 20));
+                targetSize.setHeight(std::max(100, targetSize.height() - 60));
+            } else {
+                targetSize = QSize(400, 300);
+            }
+        }
 
-        int targetW = std::max(50, containerSize.width() - 20);
-        int targetH = std::max(50, containerSize.height() - 60);
+        int targetW = std::max(50, targetSize.width() - 10);
+        int targetH = std::max(50, targetSize.height() - 10);
 
         QPixmap scaledPixmap = pixmap.scaled(targetW, targetH, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         label->setPixmap(scaledPixmap);
