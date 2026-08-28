@@ -318,7 +318,7 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
 
         // If no valid dataset adapter matched
         if (discoveredPairs.empty()) {
-            ui->lblSystemStatus->setText("❌ Không thể nhận diện tập dữ liệu hợp lệ.");
+            ui->lblSystemStatus->setText("Không thể nhận diện tập dữ liệu hợp lệ.");
             ui->lblPairCount->setText("Tổng số: 0 cặp ảnh");
             ui->lblCurrentPairId->setText("Cặp ảnh: Chưa chọn");
             ui->lblPairStatus->setText("Trạng thái: --");
@@ -603,9 +603,9 @@ void MainWindow::displayPair(const PairItemEntry &entry)
                                              .arg(colorHex));
 
         if (!messageText.isEmpty()) {
-            ui->lblPairStatusMessage->setText(QString("💬 Chi tiết: %1 | %2").arg(messageText, descText));
+            ui->lblPairStatusMessage->setText(QString("Chi tiết: %1 | %2").arg(messageText, descText));
         } else {
-            ui->lblPairStatusMessage->setText(QString("💬 Chi tiết: %1").arg(descText));
+            ui->lblPairStatusMessage->setText(QString("Chi tiết: %1").arg(descText));
         }
 
         // Resolve Full Paths
@@ -640,7 +640,7 @@ void MainWindow::renderImageToLabel(QLabel *label, const QString &imagePath)
 {
     try {
         if (!QFile::exists(imagePath)) {
-            label->setText("⚠️ Không tìm thấy file ảnh trên đĩa");
+            label->setText("[!] Không tìm thấy file ảnh trên đĩa");
             label->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
             label->setPixmap(QPixmap());
             return;
@@ -648,7 +648,7 @@ void MainWindow::renderImageToLabel(QLabel *label, const QString &imagePath)
 
         QPixmap pixmap(imagePath);
         if (pixmap.isNull()) {
-            label->setText("⚠️ Không thể giải mã dữ liệu ảnh");
+            label->setText("[!] Không thể giải mã dữ liệu ảnh");
             label->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
             label->setPixmap(QPixmap());
             return;
@@ -674,7 +674,7 @@ void MainWindow::renderImageToLabel(QLabel *label, const QString &imagePath)
         label->setPixmap(scaledPixmap);
         label->setStyleSheet("background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;");
     } catch (const std::exception &ex) {
-        label->setText(QString("⚠️ Lỗi hiển thị: %1").arg(ex.what()));
+        label->setText(QString("[!] Lỗi hiển thị: %1").arg(ex.what()));
         label->setPixmap(QPixmap());
     }
 }
@@ -920,7 +920,7 @@ QString MainWindow::getStatusDescription(PairValidationStatus status) const
         case PairValidationStatus::ThermalDecodeFailed:
             return "Không thể giải mã dữ liệu ảnh nhiệt bằng OpenCV.";
         case PairValidationStatus::DimensionMismatch:
-            return "⚠️ CẢNH BÁO: Kích thước pixel ảnh Màu và ảnh Nhiệt không khớp nhau.";
+            return "CẢNH BÁO: Kích thước pixel ảnh Màu và ảnh Nhiệt không khớp nhau.";
         case PairValidationStatus::UnexpectedVisibleDimensions:
             return "Kích thước ảnh màu không đúng với độ phân giải tiêu chuẩn của bộ dữ liệu.";
         case PairValidationStatus::UnexpectedThermalDimensions:

@@ -40,7 +40,7 @@
       <item>
        <widget class="QPushButton" name="btnBrowseDataset">
         <property name="text">
-         <string>📂 Chọn thư mục dữ liệu</string>
+         <string>Chọn thư mục dữ liệu</string>
         </property>
         <property name="minimumSize">
          <size>
@@ -53,7 +53,7 @@
       <item>
        <widget class="QPushButton" name="btnSelectSingleImage">
         <property name="text">
-         <string>🖼️ Chọn 1 ảnh (Tự động bắt cặp)</string>
+         <string>Chọn 1 ảnh (Tự động bắt cặp)</string>
         </property>
         <property name="minimumSize">
          <size>
@@ -66,7 +66,7 @@
       <item>
        <widget class="QPushButton" name="btnFullValidation">
         <property name="text">
-         <string>⚡ Kiểm tra toàn bộ</string>
+         <string>Kiểm tra toàn bộ</string>
         </property>
         <property name="minimumSize">
          <size>
@@ -212,7 +212,7 @@
          <item>
           <widget class="QLineEdit" name="txtSearchPair">
            <property name="placeholderText">
-            <string>🔍 Tìm theo ID / Tên stem...</string>
+            <string>Tìm theo ID / Tên stem...</string>
            </property>
           </widget>
          </item>
@@ -225,7 +225,7 @@
            <item>
             <widget class="QPushButton" name="btnAddToQueue">
              <property name="text">
-              <string>➕ Thêm vào Queue (Mode C)</string>
+              <string>+ Thêm vào Queue (Mode C)</string>
              </property>
              <property name="toolTip">
               <string>Thêm cặp ảnh đang chọn vào Hàng đợi chọn mẫu</string>
@@ -235,7 +235,7 @@
            <item>
             <widget class="QPushButton" name="btnClearQueue">
              <property name="text">
-              <string>🗑️ Xóa Queue</string>
+              <string>Xóa Queue</string>
              </property>
              <property name="maximumSize">
               <size>
@@ -335,99 +335,99 @@
            <!-- Visible Image Frame (A1) -->
            <item>
             <widget class="QGroupBox" name="grpVisibleImage">
-             <property name="title">
-              <string>📸 Ảnh Màu / Quan sát (Visible - A1)</string>
-             </property>
-             <layout class="QVBoxLayout" name="visibleFrameLayout" stretch="1,0">
-              <item>
-               <widget class="QLabel" name="lblVisibleImage">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>150</width>
-                  <height>150</height>
-                 </size>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignCenter</set>
-                </property>
-                <property name="text">
-                 <string>Chưa có ảnh màu</string>
-                </property>
-                <property name="styleSheet">
-                 <string>background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QLabel" name="lblVisibleInfo">
-                <property name="text">
-                 <string>Đường dẫn: -- | Kích thước: --</string>
-                </property>
-                <property name="wordWrap">
-                 <bool>true</bool>
-                </property>
-                <property name="styleSheet">
-                 <string>color: #555555; font-size: 11px;</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <!-- Thermal Image Frame (A2) -->
-           <item>
-            <widget class="QGroupBox" name="grpThermalImage">
-             <property name="title">
-              <string>🔥 Ảnh Nhiệt / Hồng ngoại (Thermal - A2)</string>
-             </property>
-             <layout class="QVBoxLayout" name="thermalFrameLayout" stretch="1,0">
-              <item>
-               <widget class="QLabel" name="lblThermalImage">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>150</width>
-                  <height>150</height>
-                 </size>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignCenter</set>
-                </property>
-                <property name="text">
-                 <string>Chưa có ảnh nhiệt</string>
-                </property>
-                <property name="styleSheet">
-                 <string>background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QLabel" name="lblThermalInfo">
-                <property name="text">
-                 <string>Đường dẫn: -- | Kích thước: --</string>
-                </property>
-                <property name="wordWrap">
-                 <bool>true</bool>
-                </property>
-                <property name="styleSheet">
-                 <string>color: #555555; font-size: 11px;</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
+              <property name="title">
+               <string>Ảnh Màu / Quan sát (Visible - A1)</string>
+              </property>
+              <layout class="QVBoxLayout" name="visibleFrameLayout" stretch="1,0">
+               <item>
+                <widget class="QLabel" name="lblVisibleImage">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>150</width>
+                   <height>150</height>
+                  </size>
+                 </property>
+                 <property name="alignment">
+                  <set>Qt::AlignCenter</set>
+                 </property>
+                 <property name="text">
+                  <string>Chưa có ảnh màu</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string>background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="lblVisibleInfo">
+                 <property name="text">
+                  <string>Đường dẫn: -- | Kích thước: --</string>
+                 </property>
+                 <property name="wordWrap">
+                  <bool>true</bool>
+                 </property>
+                 <property name="styleSheet">
+                  <string>color: #555555; font-size: 11px;</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <!-- Thermal Image Frame (A2) -->
+            <item>
+             <widget class="QGroupBox" name="grpThermalImage">
+              <property name="title">
+               <string>Ảnh Nhiệt / Hồng ngoại (Thermal - A2)</string>
+              </property>
+              <layout class="QVBoxLayout" name="thermalFrameLayout" stretch="1,0">
+               <item>
+                <widget class="QLabel" name="lblThermalImage">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>150</width>
+                   <height>150</height>
+                  </size>
+                 </property>
+                 <property name="alignment">
+                  <set>Qt::AlignCenter</set>
+                 </property>
+                 <property name="text">
+                  <string>Chưa có ảnh nhiệt</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string>background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="lblThermalInfo">
+                 <property name="text">
+                  <string>Đường dẫn: -- | Kích thước: --</string>
+                 </property>
+                 <property name="wordWrap">
+                  <bool>true</bool>
+                 </property>
+                 <property name="styleSheet">
+                  <string>color: #555555; font-size: 11px;</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
           </layout>
          </item>
         </layout>
@@ -486,7 +486,7 @@
       <item>
        <widget class="QPushButton" name="btnExportCsv">
         <property name="text">
-         <string>📊 Xuất báo cáo Manifest CSV</string>
+         <string>Xuất báo cáo Manifest CSV</string>
         </property>
         <property name="minimumSize">
          <size>
