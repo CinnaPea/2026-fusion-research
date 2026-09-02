@@ -18,12 +18,17 @@
 
 #include <QColor>
 #include <QCoreApplication>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPixmap>
 #include <QResizeEvent>
+#include <QUrl>
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -48,6 +53,15 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
+    // Enable native Drag and Drop for files and folders
+    setAcceptDrops(true);
+    ui->lblVisibleImage->installEventFilter(this);
+    ui->lblThermalImage->installEventFilter(this);
+    ui->lblVisibleImage->setCursor(Qt::PointingHandCursor);
+    ui->lblThermalImage->setCursor(Qt::PointingHandCursor);
+    ui->lblVisibleImage->setToolTip("Kéo thả tập tin ảnh vào đây hoặc bấm để chọn tệp từ máy tính");
+    ui->lblThermalImage->setToolTip("Kéo thả tập tin ảnh vào đây hoặc bấm để chọn tệp từ máy tính");
+
     setupUiControls();
 
     // Initial state
@@ -58,6 +72,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lblPairStatus->setText("Trạng thái: --");
     ui->lblPairStatusMessage->setText("");
     ui->prgLoading->setVisible(false);
+
+    resetImageDropZones();
 
     // Connect Signals and Slots
     connect(ui->btnBrowseDataset, &QPushButton::clicked, this, &MainWindow::onBrowseDatasetClicked);
@@ -79,6 +95,127 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete ui;
+}
+
+void MainWindow::resetImageDropZones()
+{
+    ui->lblVisibleImage->setPixmap(QPixmap());
+    ui->lblVisibleImage->setText(
+        "<div style='text-align: center; padding: 24px;'>"
+        "<div style='font-size: 36px; margin-bottom: 8px;'>📷</div>"
+        "<div style='font-size: 13px; font-weight: bold; color: #38bdf8; margin-bottom: 6px;'>Ô KÉO THẢ: ẢNH MÀU (A1)</div>"
+        "<div style='font-size: 11px; color: #94a3b8; line-height: 1.5;'>Kéo thả file ảnh vào đây<br/>hoặc nhấn để duyệt tệp</div>"
+        "</div>"
+    );
+    ui->lblVisibleImage->setStyleSheet(
+        "QLabel {"
+        "  background-color: #0e1726;"
+        "  border: 2px dashed #1e3a5f;"
+        "  border-radius: 10px;"
+        "  color: #94a3b8;"
+        "}"
+        "QLabel:hover {"
+        "  background-color: #12233a;"
+        "  border: 2px dashed #38bdf8;"
+        "}"
+    );
+
+    ui->lblThermalImage->setPixmap(QPixmap());
+    ui->lblThermalImage->setText(
+        "<div style='text-align: center; padding: 24px;'>"
+        "<div style='font-size: 36px; margin-bottom: 8px;'>🔥</div>"
+        "<div style='font-size: 13px; font-weight: bold; color: #fb923c; margin-bottom: 6px;'>Ô KÉO THẢ: ẢNH NHIỆT (A2)</div>"
+        "<div style='font-size: 11px; color: #94a3b8; line-height: 1.5;'>Kéo thả file ảnh vào đây<br/>hoặc nhấn để duyệt tệp</div>"
+        "</div>"
+    );
+    ui->lblThermalImage->setStyleSheet(
+        "QLabel {"
+        "  background-color: #1c151e;"
+        "  border: 2px dashed #4a2842;"
+        "  border-radius: 10px;"
+        "  color: #94a3b8;"
+        "}"
+        "QLabel:hover {"
+        "  background-color: #291a2b;"
+        "  border: 2px dashed #fb923c;"
+        "}"
+    );
+
+    ui->lblVisibleInfo->setText("<span style='color: #64748b;'>Chờ chọn hoặc kéo thả ảnh màu...</span>");
+    ui->lblVisibleInfo->setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 8px 10px; color: #94a3b8; font-size: 11px;");
+
+    ui->lblThermalInfo->setText("<span style='color: #64748b;'>Chờ chọn hoặc kéo thả ảnh nhiệt...</span>");
+    ui->lblThermalInfo->setStyleSheet("background-color: #1c1421; border: 1px solid #331d3b; border-radius: 6px; padding: 8px 10px; color: #94a3b8; font-size: 11px;");
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::MouseButtonPress) {
+        if (watched == ui->lblVisibleImage || watched == ui->lblThermalImage) {
+            onSelectSingleImageClicked();
+            return true;
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
+        ui->lblVisibleImage->setStyleSheet(
+            "QLabel {"
+            "  background-color: #0f2e3d;"
+            "  border: 2px dashed #38bdf8;"
+            "  border-radius: 10px;"
+            "  color: #38bdf8;"
+            "}"
+        );
+        ui->lblThermalImage->setStyleSheet(
+            "QLabel {"
+            "  background-color: #381f14;"
+            "  border: 2px dashed #fb923c;"
+            "  border-radius: 10px;"
+            "  color: #fb923c;"
+            "}"
+        );
+        ui->lblSystemStatus->setText("Thả tập tin ảnh hoặc thư mục dataset vào cửa sổ...");
+    } else {
+        event->ignore();
+    }
+}
+
+void MainWindow::dragLeaveEvent(QDragLeaveEvent *event)
+{
+    QMainWindow::dragLeaveEvent(event);
+    if (displayedItems_.empty()) {
+        resetImageDropZones();
+    } else if (ui->lstImagePairs->currentItem()) {
+        int idx = ui->lstImagePairs->currentItem()->data(Qt::UserRole).toInt();
+        if (idx >= 0 && idx < static_cast<int>(displayedItems_.size())) {
+            displayPair(displayedItems_[idx]);
+        }
+    }
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    const QMimeData *mimeData = event->mimeData();
+    if (mimeData->hasUrls()) {
+        QList<QUrl> urlList = mimeData->urls();
+        if (!urlList.isEmpty()) {
+            QString localPath = urlList.first().toLocalFile();
+            if (!localPath.isEmpty()) {
+                std::filesystem::path p(localPath.toStdString());
+                if (std::filesystem::is_directory(p)) {
+                    loadDatasetFromDirectory(localPath);
+                } else if (std::filesystem::is_regular_file(p)) {
+                    processSingleImagePath(localPath);
+                }
+            }
+        }
+    }
+    event->acceptProposedAction();
 }
 
 void MainWindow::setupUiControls()
@@ -615,22 +752,44 @@ void MainWindow::displayPair(const PairItemEntry &entry)
         // Render Visible Image (A1)
         renderImageToLabel(ui->lblVisibleImage, QString::fromStdString(visFullPath.string()));
         QString visDimStr = (visWidth.has_value() && visHeight.has_value())
-                                ? QString("%1 x %2 px").arg(*visWidth).arg(*visHeight)
+                                ? QString("%1 × %2 px").arg(*visWidth).arg(*visHeight)
                                 : "--";
-        ui->lblVisibleInfo->setText(QString("File: %1\nKích thước: %2 | OpenCV Decode: %3")
-                                        .arg(QString::fromStdString(pair.visibleRelativePath()))
-                                        .arg(visDimStr)
-                                        .arg(visDecoded ? "OK" : (entry.validationResult.has_value() ? "Lỗi" : "Chờ")));
+        QString visTag = visDecoded
+                             ? "<span style='background-color: #14532d; color: #86efac; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>OK</span>"
+                             : (entry.validationResult.has_value()
+                                    ? "<span style='background-color: #7f1d1d; color: #fca5a5; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>Lỗi</span>"
+                                    : "<span style='background-color: #334155; color: #94a3b8; padding: 2px 6px; border-radius: 4px;'>Chờ</span>");
+
+        ui->lblVisibleInfo->setText(QString(
+            "<div style='line-height: 1.4;'>"
+            "<b>📁 File:</b> <span style='color: #e2e8f0;'>%1</span><br/>"
+            "<b>📐 Kích thước:</b> <span style='color: #38bdf8; font-weight: bold;'>%2</span> &nbsp;|&nbsp; <b>⚡ OpenCV Decode:</b> %3"
+            "</div>")
+            .arg(QString::fromStdString(pair.visibleRelativePath()))
+            .arg(visDimStr)
+            .arg(visTag));
+        ui->lblVisibleInfo->setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 6px 10px; color: #94a3b8; font-size: 11px;");
 
         // Render Thermal Image (A2)
         renderImageToLabel(ui->lblThermalImage, QString::fromStdString(thrFullPath.string()));
         QString thrDimStr = (thrWidth.has_value() && thrHeight.has_value())
-                                ? QString("%1 x %2 px").arg(*thrWidth).arg(*thrHeight)
+                                ? QString("%1 × %2 px").arg(*thrWidth).arg(*thrHeight)
                                 : "--";
-        ui->lblThermalInfo->setText(QString("File: %1\nKích thước: %2 | OpenCV Decode: %3")
-                                        .arg(QString::fromStdString(pair.thermalRelativePath()))
-                                        .arg(thrDimStr)
-                                        .arg(thrDecoded ? "OK" : (entry.validationResult.has_value() ? "Lỗi" : "Chờ")));
+        QString thrTag = thrDecoded
+                             ? "<span style='background-color: #14532d; color: #86efac; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>OK</span>"
+                             : (entry.validationResult.has_value()
+                                    ? "<span style='background-color: #7f1d1d; color: #fca5a5; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>Lỗi</span>"
+                                    : "<span style='background-color: #334155; color: #94a3b8; padding: 2px 6px; border-radius: 4px;'>Chờ</span>");
+
+        ui->lblThermalInfo->setText(QString(
+            "<div style='line-height: 1.4;'>"
+            "<b>📁 File:</b> <span style='color: #e2e8f0;'>%1</span><br/>"
+            "<b>📐 Kích thước:</b> <span style='color: #fb923c; font-weight: bold;'>%2</span> &nbsp;|&nbsp; <b>⚡ OpenCV Decode:</b> %3"
+            "</div>")
+            .arg(QString::fromStdString(pair.thermalRelativePath()))
+            .arg(thrDimStr)
+            .arg(thrTag));
+        ui->lblThermalInfo->setStyleSheet("background-color: #1c1421; border: 1px solid #331d3b; border-radius: 6px; padding: 6px 10px; color: #94a3b8; font-size: 11px;");
     } catch (const std::exception &ex) {
         ui->lblSystemStatus->setText(QString("Lỗi hiển thị cặp ảnh: %1").arg(ex.what()));
     }
@@ -640,16 +799,16 @@ void MainWindow::renderImageToLabel(QLabel *label, const QString &imagePath)
 {
     try {
         if (!QFile::exists(imagePath)) {
-            label->setText("[!] Không tìm thấy file ảnh trên đĩa");
-            label->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
+            label->setText("<div style='text-align: center; color: #ff6b6b; padding: 15px;'><b>[!] Không tìm thấy tập tin ảnh trên đĩa</b></div>");
+            label->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 2px dashed #d32f2f; border-radius: 8px;");
             label->setPixmap(QPixmap());
             return;
         }
 
         QPixmap pixmap(imagePath);
         if (pixmap.isNull()) {
-            label->setText("[!] Không thể giải mã dữ liệu ảnh");
-            label->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
+            label->setText("<div style='text-align: center; color: #ff6b6b; padding: 15px;'><b>[!] Không thể giải mã dữ liệu ảnh</b></div>");
+            label->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 2px dashed #d32f2f; border-radius: 8px;");
             label->setPixmap(QPixmap());
             return;
         }
@@ -672,23 +831,16 @@ void MainWindow::renderImageToLabel(QLabel *label, const QString &imagePath)
 
         QPixmap scaledPixmap = pixmap.scaled(targetW, targetH, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         label->setPixmap(scaledPixmap);
-        label->setStyleSheet("background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;");
+        label->setStyleSheet("background-color: #0b0f14; border: 1px solid #1e293b; border-radius: 8px;");
     } catch (const std::exception &ex) {
-        label->setText(QString("[!] Lỗi hiển thị: %1").arg(ex.what()));
+        label->setText(QString("<div style='text-align: center; color: #ff6b6b;'>[!] Lỗi hiển thị: %1</div>").arg(ex.what()));
         label->setPixmap(QPixmap());
     }
 }
 
-void MainWindow::onSelectSingleImageClicked()
+void MainWindow::processSingleImagePath(const QString &imageFile)
 {
     try {
-        const QString imageFile = QFileDialog::getOpenFileName(
-            this,
-            "Chọn 1 tập tin ảnh (Hệ thống sẽ tự động tìm ảnh cặp tương ứng)",
-            ui->txtDatasetDir->text().isEmpty() ? QDir::homePath() : ui->txtDatasetDir->text(),
-            "Images (*.jpg *.jpeg *.png *.bmp)"
-        );
-
         if (imageFile.isEmpty()) return;
 
         std::filesystem::path filePath(imageFile.toStdString());
@@ -751,6 +903,20 @@ void MainWindow::onSelectSingleImageClicked()
         }
     } catch (const std::exception &ex) {
         QMessageBox::critical(this, "Lỗi Bắt Cặp", QString("Đã xảy ra lỗi khi tìm cặp ảnh:\n%1").arg(ex.what()));
+    }
+}
+
+void MainWindow::onSelectSingleImageClicked()
+{
+    const QString imageFile = QFileDialog::getOpenFileName(
+        this,
+        "Chọn 1 tập tin ảnh (Hệ thống sẽ tự động tìm ảnh cặp tương ứng)",
+        ui->txtDatasetDir->text().isEmpty() ? QDir::homePath() : ui->txtDatasetDir->text(),
+        "Images (*.jpg *.jpeg *.png *.bmp)"
+    );
+
+    if (!imageFile.isEmpty()) {
+        processSingleImagePath(imageFile);
     }
 }
 
