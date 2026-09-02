@@ -16,178 +16,187 @@
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="mainLayout">
     <item>
-     <layout class="QHBoxLayout" name="topBarLayout">
-      <item>
-       <widget class="QLabel" name="lblDirTitle">
-        <property name="font">
-         <font>
-          <bold>true</bold>
-         </font>
-        </property>
-        <property name="text">
-         <string>Thư mục dữ liệu:</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLineEdit" name="txtDatasetDir">
-        <property name="placeholderText">
-         <string>Chọn thư mục chứa bộ dữ liệu (LLVIP, MSRS, RoadScene...)...</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btnBrowseDataset">
-        <property name="minimumSize">
-         <size>
-          <width>160</width>
-          <height>30</height>
-         </size>
-        </property>
-        <property name="text">
-         <string>Chọn thư mục dữ liệu</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btnSelectSingleImage">
-        <property name="minimumSize">
-         <size>
-          <width>210</width>
-          <height>30</height>
-         </size>
-        </property>
-        <property name="text">
-         <string>Chọn 1 ảnh (Tự động bắt cặp)</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btnFullValidation">
-        <property name="minimumSize">
-         <size>
-          <width>140</width>
-          <height>30</height>
-         </size>
-        </property>
-        <property name="toolTip">
-         <string>Chạy kiểm định và giải mã toàn bộ cặp ảnh trong tập dữ liệu</string>
-        </property>
-        <property name="text">
-         <string>Kiểm tra toàn bộ</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <item>
-     <layout class="QHBoxLayout" name="filterBarLayout">
-      <item>
-       <widget class="QLabel" name="lblDatasetLabel">
-        <property name="font">
-         <font>
-          <bold>true</bold>
-         </font>
-        </property>
-        <property name="text">
-         <string>Dataset:</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QComboBox" name="cbDatasetSelect">
-        <property name="minimumSize">
-         <size>
-          <width>170</width>
-          <height>26</height>
-         </size>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="lblPartitionLabel">
-        <property name="font">
-         <font>
-          <bold>true</bold>
-         </font>
-        </property>
-        <property name="text">
-         <string>Partition:</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QComboBox" name="cbPartitionSelect">
-        <property name="minimumSize">
-         <size>
-          <width>140</width>
-          <height>26</height>
-         </size>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <spacer name="spacerFilter">
-        <property name="orientation">
-         <enum>Qt::Orientation::Horizontal</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>20</width>
-          <height>20</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-      <item>
-       <widget class="QLabel" name="lblViewModeLabel">
-        <property name="font">
-         <font>
-          <bold>true</bold>
-         </font>
-        </property>
-        <property name="text">
-         <string>Chế độ xem:</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QComboBox" name="cbViewMode">
-        <property name="minimumSize">
-         <size>
-          <width>240</width>
-          <height>26</height>
-         </size>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="lblSampleCountLabel">
-        <property name="text">
-         <string>Số mẫu/partition:</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QSpinBox" name="spnSampleCount">
-        <property name="minimumSize">
-         <size>
-          <width>60</width>
-          <height>26</height>
-         </size>
-        </property>
-        <property name="minimum">
-         <number>2</number>
-        </property>
-        <property name="maximum">
-         <number>500</number>
-        </property>
-        <property name="value">
-         <number>5</number>
-        </property>
-       </widget>
-      </item>
-     </layout>
+     <widget class="QGroupBox" name="grpDatasetControls">
+      <property name="title">
+       <string>Cấu hình Bộ dữ liệu &amp; Chế độ xem</string>
+      </property>
+      <layout class="QVBoxLayout" name="datasetControlsLayout">
+       <item>
+        <layout class="QHBoxLayout" name="topBarLayout">
+         <item>
+          <widget class="QLabel" name="lblDirTitle">
+           <property name="font">
+            <font>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>Thư mục dữ liệu:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="txtDatasetDir">
+           <property name="placeholderText">
+            <string>Chọn thư mục chứa bộ dữ liệu (LLVIP, MSRS, RoadScene...)...</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnBrowseDataset">
+           <property name="minimumSize">
+            <size>
+             <width>160</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>Chọn thư mục dữ liệu</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnSelectSingleImage">
+           <property name="minimumSize">
+            <size>
+             <width>210</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>Chọn 1 ảnh (Tự động bắt cặp)</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnFullValidation">
+           <property name="minimumSize">
+            <size>
+             <width>140</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Chạy kiểm định và giải mã toàn bộ cặp ảnh trong tập dữ liệu</string>
+           </property>
+           <property name="text">
+            <string>Kiểm tra toàn bộ</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="filterBarLayout">
+         <item>
+          <widget class="QLabel" name="lblDatasetLabel">
+           <property name="font">
+            <font>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>Dataset:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="cbDatasetSelect">
+           <property name="minimumSize">
+            <size>
+             <width>170</width>
+             <height>26</height>
+            </size>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="lblPartitionLabel">
+           <property name="font">
+            <font>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>Partition:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="cbPartitionSelect">
+           <property name="minimumSize">
+            <size>
+             <width>140</width>
+             <height>26</height>
+            </size>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="spacerFilter">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>20</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QLabel" name="lblViewModeLabel">
+           <property name="font">
+            <font>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>Chế độ xem:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="cbViewMode">
+           <property name="minimumSize">
+            <size>
+             <width>240</width>
+             <height>26</height>
+            </size>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="lblSampleCountLabel">
+           <property name="text">
+            <string>Số mẫu/partition:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="spnSampleCount">
+           <property name="minimumSize">
+            <size>
+             <width>60</width>
+             <height>26</height>
+            </size>
+           </property>
+           <property name="minimum">
+            <number>2</number>
+           </property>
+           <property name="maximum">
+            <number>500</number>
+           </property>
+           <property name="value">
+            <number>5</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
     </item>
     <item>
      <layout class="QHBoxLayout" name="contentLayout">
@@ -242,8 +251,10 @@
          </item>
          <item>
           <widget class="QLabel" name="lblPairCount">
-           <property name="styleSheet">
-            <string>color: #666666; font-size: 12px; font-weight: bold;</string>
+           <property name="font">
+            <font>
+             <bold>true</bold>
+            </font>
            </property>
            <property name="text">
             <string>Tổng số: 0 cặp ảnh</string>
@@ -270,7 +281,7 @@
               <widget class="QLabel" name="lblCurrentPairId">
                <property name="font">
                 <font>
-                 <pointsize>13</pointsize>
+                 <pointsize>12</pointsize>
                  <bold>true</bold>
                 </font>
                </property>
@@ -294,8 +305,11 @@
              </item>
              <item>
               <widget class="QLabel" name="lblPairStatus">
-               <property name="styleSheet">
-                <string>background-color: #e0e0e0; color: #333333; padding: 4px 10px; border-radius: 4px; font-weight: bold;</string>
+               <property name="font">
+                <font>
+                 <pointsize>11</pointsize>
+                 <bold>true</bold>
+                </font>
                </property>
                <property name="text">
                 <string>Trạng thái: --</string>
@@ -306,9 +320,6 @@
            </item>
            <item>
             <widget class="QLabel" name="lblPairStatusMessage">
-             <property name="styleSheet">
-              <string>color: #444444; font-size: 11px; margin-top: 2px;</string>
-             </property>
              <property name="text">
               <string/>
              </property>
@@ -341,8 +352,11 @@
                   <height>150</height>
                  </size>
                 </property>
-                <property name="styleSheet">
-                 <string>background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;</string>
+                <property name="frameShape">
+                 <enum>QFrame::Shape::Box</enum>
+                </property>
+                <property name="frameShadow">
+                 <enum>QFrame::Shadow::Sunken</enum>
                 </property>
                 <property name="text">
                  <string>Chưa có ảnh màu</string>
@@ -354,9 +368,6 @@
               </item>
               <item>
                <widget class="QLabel" name="lblVisibleInfo">
-                <property name="styleSheet">
-                 <string>color: #555555; font-size: 11px;</string>
-                </property>
                 <property name="text">
                  <string>Đường dẫn: -- | Kích thước: --</string>
                 </property>
@@ -388,8 +399,11 @@
                   <height>150</height>
                  </size>
                 </property>
-                <property name="styleSheet">
-                 <string>background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;</string>
+                <property name="frameShape">
+                 <enum>QFrame::Shape::Box</enum>
+                </property>
+                <property name="frameShadow">
+                 <enum>QFrame::Shadow::Sunken</enum>
                 </property>
                 <property name="text">
                  <string>Chưa có ảnh nhiệt</string>
@@ -401,9 +415,6 @@
               </item>
               <item>
                <widget class="QLabel" name="lblThermalInfo">
-                <property name="styleSheet">
-                 <string>color: #555555; font-size: 11px;</string>
-                </property>
                 <property name="text">
                  <string>Đường dẫn: -- | Kích thước: --</string>
                 </property>
@@ -426,9 +437,6 @@
      <layout class="QHBoxLayout" name="bottomBarLayout">
       <item>
        <widget class="QLabel" name="lblSystemStatus">
-        <property name="styleSheet">
-         <string>color: #444444;</string>
-        </property>
         <property name="text">
          <string>Sẵn sàng. Chọn 1 ảnh hoặc thư mục dữ liệu để tự động hiển thị cặp tương ứng.</string>
         </property>
