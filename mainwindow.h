@@ -40,10 +40,6 @@ public:
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
-    void dragEnterEvent(QDragEnterEvent *event) override;
-    void dragLeaveEvent(QDragLeaveEvent *event) override;
-    void dropEvent(QDropEvent *event) override;
-    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void onBrowseDatasetClicked();
@@ -61,8 +57,6 @@ private slots:
 
 private:
     void setupUiControls();
-    void resetImageDropZones();
-    void processSingleImagePath(const QString &imagePath);
     void loadDatasetFromDirectory(const QString &dirPath);
     void applyFiltersAndModes();
     void displayPair(const PairItemEntry &entry);
