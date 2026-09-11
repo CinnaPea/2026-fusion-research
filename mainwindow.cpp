@@ -15,6 +15,7 @@
 #include "core/manifests/validation_manifest_row.h"
 #include "core/validation/pair_validator.h"
 #include "core/visualization/preview_pair_selector.h"
+#include "core/visualization/preview_selection.h"
 
 #include <QColor>
 #include <QCoreApplication>
@@ -28,6 +29,7 @@
 #include <cctype>
 #include <filesystem>
 #include <map>
+#include <random>
 #include <set>
 #include <vector>
 
@@ -41,6 +43,9 @@ using qart::core::manifests::CsvValidationManifestWriter;
 using qart::core::manifests::ValidationManifest;
 using qart::core::manifests::ValidationManifestRow;
 using qart::core::validation::PairValidator;
+using qart::core::visualization::PreviewPairSelector;
+using qart::core::visualization::PreviewSelection;
+using qart::core::visualization::PreviewSelectionRequest;
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -102,8 +107,9 @@ void MainWindow::setupUiControls()
     // View Mode combo box items
     ui->cbViewMode->clear();
     ui->cbViewMode->addItem("Chế độ A: Duyệt toàn bộ (Full Dataset)", "full");
-    ui->cbViewMode->addItem("Chế độ B: Lấy mẫu tự động (Auto Sample)", "sample");
+    ui->cbViewMode->addItem("Chế độ B: Lấy mẫu tự động (Deterministic Auto Sample)", "sample");
     ui->cbViewMode->addItem("Chế độ C: Hàng đợi chọn mẫu (Queue: Auto + Manual)", "queue");
+    ui->cbViewMode->addItem("Chế độ D: Khám phá ngẫu nhiên (Exploratory Random Preview)", "random");
 
     ui->spnSampleCount->setRange(2, 500);
     ui->spnSampleCount->setValue(5);
@@ -386,6 +392,12 @@ void MainWindow::applyFiltersAndModes()
             return;
         }
 
+        // Set of manual queue IDs for fast lookup
+        std::set<std::string> manualQueueIds;
+        for (const auto &p : manualSelectionQueue_) {
+            manualQueueIds.insert(p.pairId());
+        }
+
         // 1. Filter by Partition
         QString selectedPartition = ui->cbPartitionSelect->currentData().toString();
         std::vector<DatasetPair> filteredPairs;
@@ -411,59 +423,93 @@ void MainWindow::applyFiltersAndModes()
             }
         }
         else if (viewMode == "sample") {
-            // Mode B: Canonical Deterministic Auto Sample Mode using PreviewPairSelector
+            // Mode B: Core PreviewPairSelector (Deterministic Canonical Sampling)
             int countPerPartition = std::max(2, ui->spnSampleCount->value());
 
-            std::vector<PairValidationResult> validationResults;
-            validationResults.reserve(filteredPairs.size());
+            std::vector<PairValidationResult> candidateResults;
+            candidateResults.reserve(filteredPairs.size());
             for (const auto &pair : filteredPairs) {
-                validationResults.push_back(getOrValidatePair(pair));
+                candidateResults.push_back(getOrValidatePair(pair));
             }
 
-            qart::core::visualization::PreviewPairSelector selector;
-            qart::core::visualization::PreviewSelectionRequest request(countPerPartition, {});
-            auto selection = selector.select(validationResults, request);
+            try {
+                PreviewSelectionRequest request(countPerPartition, {});
+                PreviewPairSelector selector;
+                PreviewSelection selection = selector.select(candidateResults, request);
 
-            for (const auto &autoRes : selection.automaticResults()) {
-                displayedItems_.push_back(PairItemEntry{autoRes.pair(), autoRes, "[AUTO]"});
+                for (const auto &res : selection.automaticResults()) {
+                    displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
+                }
+            } catch (const std::exception &ex) {
+                ui->lblSystemStatus->setText(QString("PreviewPairSelector error: %1").arg(ex.what()));
             }
         }
         else if (viewMode == "queue") {
-            // Mode C: Selection Queue (Auto Sample + Manual Add) using PreviewPairSelector
+            // Mode C: Selection Queue (Auto Sample + Manual Add)
             int countPerPartition = std::max(2, ui->spnSampleCount->value());
 
-            std::vector<PairValidationResult> validationResults;
-            validationResults.reserve(filteredPairs.size());
+            std::set<std::string> addedPairIds;
+
+            // 1. Add Auto samples from core selector
+            std::vector<PairValidationResult> candidateResults;
+            candidateResults.reserve(filteredPairs.size());
             for (const auto &pair : filteredPairs) {
-                validationResults.push_back(getOrValidatePair(pair));
+                candidateResults.push_back(getOrValidatePair(pair));
             }
 
-            std::vector<std::string> validExplicitPairIds;
+            try {
+                PreviewSelectionRequest request(countPerPartition, {});
+                PreviewPairSelector selector;
+                PreviewSelection selection = selector.select(candidateResults, request);
+
+                for (const auto &res : selection.automaticResults()) {
+                    if (addedPairIds.insert(res.pair().pairId()).second) {
+                        displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
+                    }
+                }
+            } catch (...) {
+                // Fall through to manual items
+            }
+
+            // 2. Add Manual items (Deduplicated)
             for (const auto &manualPair : manualSelectionQueue_) {
-                for (const auto &vr : validationResults) {
-                    if (vr.pair().pairId() == manualPair.pairId() && vr.status() == PairValidationStatus::Valid) {
-                        validExplicitPairIds.push_back(manualPair.pairId());
-                        break;
+                if (selectedPartition.isEmpty() || manualPair.partitionId().value() == selectedPartition.toStdString()) {
+                    if (addedPairIds.insert(manualPair.pairId()).second) {
+                        displayedItems_.push_back(PairItemEntry{manualPair, std::nullopt, "[MANUAL]"});
+                    } else {
+                        // If already present from AUTO, upgrade tag to MANUAL
+                        for (auto &item : displayedItems_) {
+                            if (item.pair.pairId() == manualPair.pairId()) {
+                                item.sourceTag = "[MANUAL]";
+                                break;
+                            }
+                        }
                     }
                 }
             }
-
-            qart::core::visualization::PreviewPairSelector selector;
-            qart::core::visualization::PreviewSelectionRequest request(countPerPartition, validExplicitPairIds);
-            auto selection = selector.select(validationResults, request);
-
-            for (const auto &autoRes : selection.automaticResults()) {
-                displayedItems_.push_back(PairItemEntry{autoRes.pair(), autoRes, "[AUTO]"});
-            }
-            for (const auto &explicitRes : selection.explicitResults()) {
-                displayedItems_.push_back(PairItemEntry{explicitRes.pair(), explicitRes, "[MANUAL]"});
-            }
         }
+        else if (viewMode == "random") {
+            // Mode D: Exploratory Random Preview (Deterministic via fixed seed per count)
+            int countPerPartition = std::max(2, ui->spnSampleCount->value());
 
-        // Set of pairs in manual queue for marking
-        std::set<std::string> manualQueueSet;
-        for (const auto &mp : manualSelectionQueue_) {
-            manualQueueSet.insert(mp.pairId());
+            std::map<std::string, std::vector<DatasetPair>> partitionGroups;
+            for (const auto &pair : filteredPairs) {
+                partitionGroups[pair.partitionId().value()].push_back(pair);
+            }
+
+            std::mt19937 g(42 + countPerPartition);
+
+            for (auto &[partId, groupPairs] : partitionGroups) {
+                if (groupPairs.empty()) continue;
+
+                std::vector<DatasetPair> shuffled = groupPairs;
+                std::shuffle(shuffled.begin(), shuffled.end(), g);
+
+                int takeCount = std::min(countPerPartition, static_cast<int>(shuffled.size()));
+                for (int i = 0; i < takeCount; ++i) {
+                    displayedItems_.push_back(PairItemEntry{shuffled[i], std::nullopt, "[EXPLORE]"});
+                }
+            }
         }
 
         // 3. Populate List Widget
@@ -471,28 +517,24 @@ void MainWindow::applyFiltersAndModes()
             const auto &itemEntry = displayedItems_[i];
             const auto &pair = itemEntry.pair;
 
-            bool inQueue = (manualQueueSet.count(pair.pairId()) > 0);
-            QString queueSuffix = (inQueue && viewMode != "queue") ? " [IN QUEUE]" : "";
-
             QString sourcePrefix = itemEntry.sourceTag.isEmpty() ? "" : (itemEntry.sourceTag + " ");
+            QString inQueueSuffix = (manualQueueIds.count(pair.pairId()) > 0) ? " [IN QUEUE]" : "";
+
             QString itemText = QString("%1%2 (%3)%4")
                                    .arg(sourcePrefix)
                                    .arg(QString::fromStdString(pair.sourceStem()))
                                    .arg(QString::fromStdString(pair.pairId()))
-                                   .arg(queueSuffix);
+                                   .arg(inQueueSuffix);
 
             auto *listItem = new QListWidgetItem(itemText, ui->lstImagePairs);
             listItem->setData(Qt::UserRole, static_cast<int>(i));
-            if (inQueue && viewMode != "queue") {
-                listItem->setForeground(QBrush(QColor("#E65100"))); // Distinct color for queued items in Mode A/B
-            } else {
-                listItem->setForeground(QBrush(QColor("#1565C0"))); // Soft blue default
-            }
+            listItem->setForeground(QBrush(QColor("#1565C0"))); // Soft blue default
         }
 
         QString modeName = "Duyệt toàn bộ";
         if (viewMode == "sample") modeName = "Lấy mẫu tự động";
         if (viewMode == "queue") modeName = "Hàng đợi chọn mẫu (Queue)";
+        if (viewMode == "random") modeName = "Khám phá ngẫu nhiên";
 
         ui->lblPairCount->setText(QString("Tổng số: %1 cặp ảnh (%2)")
                                       .arg(displayedItems_.size())
@@ -534,12 +576,15 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
         QString tagText = getStatusTagText(status);
         QString colorHex = getStatusColorHex(status);
 
-        std::set<std::string> manualQueueSet;
-        for (const auto &mp : manualSelectionQueue_) {
-            manualQueueSet.insert(mp.pairId());
+        // Check if in manual queue
+        bool isManualQueued = false;
+        for (const auto &p : manualSelectionQueue_) {
+            if (p.pairId() == entry.pair.pairId()) {
+                isManualQueued = true;
+                break;
+            }
         }
-        bool inQueue = (manualQueueSet.count(entry.pair.pairId()) > 0);
-        QString queueSuffix = (inQueue && ui->cbViewMode->currentData().toString() != "queue") ? " [IN QUEUE]" : "";
+        QString inQueueSuffix = isManualQueued ? " [IN QUEUE]" : "";
 
         QString sourcePrefix = entry.sourceTag.isEmpty() ? "" : (entry.sourceTag + " ");
         item->setText(QString("[%1] %2%3 (%4)%5")
@@ -547,7 +592,7 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
                           .arg(sourcePrefix)
                           .arg(QString::fromStdString(entry.pair.sourceStem()))
                           .arg(QString::fromStdString(entry.pair.pairId()))
-                          .arg(queueSuffix));
+                          .arg(inQueueSuffix));
         item->setForeground(QBrush(QColor(colorHex)));
 
         displayPair(entry);
@@ -595,7 +640,8 @@ void MainWindow::displayPair(const PairItemEntry &entry)
         QString colorHex = getStatusColorHex(status);
 
         ui->lblPairStatus->setText(QString("Trạng thái: %1").arg(tagText));
-        ui->lblPairStatus->setStyleSheet(QString("color: %1; font-weight: bold;").arg(colorHex));
+        ui->lblPairStatus->setStyleSheet(QString("background-color: %1; color: #FFFFFF; padding: 4px 10px; border-radius: 4px; font-weight: bold;")
+                                             .arg(colorHex));
 
         if (!messageText.isEmpty()) {
             ui->lblPairStatusMessage->setText(QString("Chi tiết: %1 | %2").arg(messageText, descText));
@@ -636,6 +682,7 @@ void MainWindow::renderImageToLabel(QLabel *label, const QString &imagePath)
     try {
         if (!QFile::exists(imagePath)) {
             label->setText("[!] Không tìm thấy file ảnh trên đĩa");
+            label->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
             label->setPixmap(QPixmap());
             return;
         }
@@ -643,6 +690,7 @@ void MainWindow::renderImageToLabel(QLabel *label, const QString &imagePath)
         QPixmap pixmap(imagePath);
         if (pixmap.isNull()) {
             label->setText("[!] Không thể giải mã dữ liệu ảnh");
+            label->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
             label->setPixmap(QPixmap());
             return;
         }
@@ -665,6 +713,7 @@ void MainWindow::renderImageToLabel(QLabel *label, const QString &imagePath)
 
         QPixmap scaledPixmap = pixmap.scaled(targetW, targetH, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         label->setPixmap(scaledPixmap);
+        label->setStyleSheet("background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;");
     } catch (const std::exception &ex) {
         label->setText(QString("[!] Lỗi hiển thị: %1").arg(ex.what()));
         label->setPixmap(QPixmap());
@@ -695,9 +744,8 @@ void MainWindow::onSelectSingleImageClicked()
             return;
         }
 
-        // 1. Identify dataset from file path
-        std::string pStr = filePath.generic_string();
-        std::string pStrLower = pStr;
+        // 1. Identify dataset and partition from file path
+        std::string pStrLower = filePath.generic_string();
         std::transform(pStrLower.begin(), pStrLower.end(), pStrLower.begin(), ::tolower);
 
         std::string detectedDataset = "";
@@ -709,58 +757,84 @@ void MainWindow::onSelectSingleImageClicked()
             detectedDataset = "roadscene";
         }
 
-        // 2. Identify partition from file path
         std::string detectedPartition = "";
-        if (pStrLower.find("/train/") != std::string::npos) {
+        if (pStrLower.find("/train/") != std::string::npos || pStrLower.find("/train") != std::string::npos) {
             detectedPartition = "train";
-        } else if (pStrLower.find("/test/") != std::string::npos) {
+        } else if (pStrLower.find("/test/") != std::string::npos || pStrLower.find("/test") != std::string::npos) {
             detectedPartition = "test";
-        } else if (pStrLower.find("/val/") != std::string::npos) {
+        } else if (pStrLower.find("/val/") != std::string::npos || pStrLower.find("/val") != std::string::npos) {
             detectedPartition = "val";
         } else if (detectedDataset == "roadscene") {
             detectedPartition = "all";
         }
 
-        // 3. If dataset root or active dataset ID changed, switch and load dataset
-        bool needReload = (datasetRoot_ != resolvedRoot) ||
-                          (!detectedDataset.empty() && currentDatasetId_.toStdString() != detectedDataset) ||
-                          allDiscoveredPairs_.empty();
+        if (detectedDataset.empty()) {
+            QMessageBox::warning(this, "Không nhận diện được Dataset",
+                                 QString("Tập tin ảnh '%1' không thuộc các bộ dữ liệu được hỗ trợ (LLVIP, MSRS, RoadScene).")
+                                     .arg(QString::fromStdString(filePath.filename().string())));
+            return;
+        }
 
-        if (needReload) {
+        // 2. Switch dataset if datasetRoot or datasetId is different
+        bool datasetChanged = (datasetRoot_ != resolvedRoot) ||
+                              (currentDatasetId_.toStdString() != detectedDataset) ||
+                              allDiscoveredPairs_.empty();
+
+        if (datasetChanged) {
             datasetRoot_ = resolvedRoot;
             ui->txtDatasetDir->setText(QString::fromStdString(resolvedRoot.string()));
 
             isUpdatingControls_ = true;
-            if (!detectedDataset.empty()) {
-                int dsIdx = ui->cbDatasetSelect->findData(QString::fromStdString(detectedDataset));
-                if (dsIdx >= 0) {
-                    ui->cbDatasetSelect->setCurrentIndex(dsIdx);
-                }
+            int dsIdx = ui->cbDatasetSelect->findData(QString::fromStdString(detectedDataset));
+            if (dsIdx >= 0) {
+                ui->cbDatasetSelect->setCurrentIndex(dsIdx);
             }
             isUpdatingControls_ = false;
 
             loadDatasetFromDirectory(QString::fromStdString(resolvedRoot.string()));
         }
 
-        // 4. Find canonical pair by source stem or relative path or pair ID
+        // 3. Find canonical pair by pairId, relative path, or stem + partition
         std::string stem = filePath.stem().string();
         std::filesystem::path relPath = std::filesystem::relative(filePath, resolvedRoot);
         std::string relPathStr = relPath.generic_string();
 
-        int targetIndex = -1;
-        for (std::size_t i = 0; i < allDiscoveredPairs_.size(); ++i) {
-            const auto &p = allDiscoveredPairs_[i];
-            bool stemMatch = (p.sourceStem() == stem);
-            bool partMatch = detectedPartition.empty() || (p.partitionId().value() == detectedPartition);
-            bool relMatch = (p.visibleRelativePath() == relPathStr || p.thermalRelativePath() == relPathStr);
+        std::string expectedPairId = detectedDataset + "_" + detectedPartition + "_" + stem;
 
-            if (relMatch || (stemMatch && partMatch)) {
-                targetIndex = static_cast<int>(i);
-                break;
+        int targetIndex = -1;
+        // Priority 1: Match by expected pair ID
+        if (!detectedPartition.empty()) {
+            for (std::size_t i = 0; i < allDiscoveredPairs_.size(); ++i) {
+                if (allDiscoveredPairs_[i].pairId() == expectedPairId) {
+                    targetIndex = static_cast<int>(i);
+                    break;
+                }
             }
         }
 
-        // Fallback: search by stem only if not found with partition
+        // Priority 2: Match by relative path
+        if (targetIndex < 0) {
+            for (std::size_t i = 0; i < allDiscoveredPairs_.size(); ++i) {
+                const auto &p = allDiscoveredPairs_[i];
+                if (p.visibleRelativePath() == relPathStr || p.thermalRelativePath() == relPathStr) {
+                    targetIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+
+        // Priority 3: Match by stem and partition
+        if (targetIndex < 0) {
+            for (std::size_t i = 0; i < allDiscoveredPairs_.size(); ++i) {
+                const auto &p = allDiscoveredPairs_[i];
+                if (p.sourceStem() == stem && (detectedPartition.empty() || p.partitionId().value() == detectedPartition)) {
+                    targetIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+
+        // Priority 4: Match by stem only
         if (targetIndex < 0) {
             for (std::size_t i = 0; i < allDiscoveredPairs_.size(); ++i) {
                 if (allDiscoveredPairs_[i].sourceStem() == stem) {
@@ -773,64 +847,68 @@ void MainWindow::onSelectSingleImageClicked()
         if (targetIndex >= 0) {
             const auto &foundPair = allDiscoveredPairs_[targetIndex];
 
-            // Switch partition filter if needed
-            isUpdatingControls_ = true;
-            int partIdx = ui->cbPartitionSelect->findData(QString::fromStdString(foundPair.partitionId().value()));
-            if (partIdx >= 0) {
-                ui->cbPartitionSelect->setCurrentIndex(partIdx);
+            // Switch partition filter if current filter excludes this pair
+            QString targetPartition = QString::fromStdString(foundPair.partitionId().value());
+            if (ui->cbPartitionSelect->currentData().toString() != "" &&
+                ui->cbPartitionSelect->currentData().toString() != targetPartition) {
+                isUpdatingControls_ = true;
+                int partIdx = ui->cbPartitionSelect->findData(targetPartition);
+                if (partIdx >= 0) {
+                    ui->cbPartitionSelect->setCurrentIndex(partIdx);
+                } else {
+                    ui->cbPartitionSelect->setCurrentIndex(0); // All partitions
+                }
+                isUpdatingControls_ = false;
+                applyFiltersAndModes();
             }
-            isUpdatingControls_ = false;
 
-            applyFiltersAndModes();
-
-            // Locate in list widget
+            // Locate in displayed list widget
             bool foundInList = false;
             for (int i = 0; i < ui->lstImagePairs->count(); ++i) {
                 auto *item = ui->lstImagePairs->item(i);
-                int itemIdx = item->data(Qt::UserRole).toInt();
-                if (itemIdx >= 0 && itemIdx < static_cast<int>(displayedItems_.size())) {
-                    if (displayedItems_[itemIdx].pair.pairId() == foundPair.pairId()) {
-                        ui->lstImagePairs->setCurrentRow(i);
-                        onPairSelected(item);
-                        foundInList = true;
-                        break;
-                    }
+                int idx = item->data(Qt::UserRole).toInt();
+                if (idx >= 0 && idx < static_cast<int>(displayedItems_.size()) &&
+                    displayedItems_[idx].pair.pairId() == foundPair.pairId()) {
+                    ui->lstImagePairs->setCurrentRow(i);
+                    onPairSelected(item);
+                    ui->lblSystemStatus->setText(QString("Đã tự động bắt cặp chính xác cho ảnh stem '%1' (%2/%3).")
+                                                     .arg(QString::fromStdString(stem))
+                                                     .arg(QString::fromStdString(foundPair.datasetId()))
+                                                     .arg(QString::fromStdString(foundPair.partitionId().value())));
+                    foundInList = true;
+                    break;
                 }
             }
 
+            // If not found in list (e.g. Mode B sample excluded this pair), switch to Mode A (Full)
             if (!foundInList) {
-                // If current view mode (e.g. Mode B sample) excluded this pair, switch to Mode A (Full)
                 isUpdatingControls_ = true;
                 int fullIdx = ui->cbViewMode->findData("full");
                 if (fullIdx >= 0) {
                     ui->cbViewMode->setCurrentIndex(fullIdx);
                 }
                 isUpdatingControls_ = false;
+
                 applyFiltersAndModes();
 
                 for (int i = 0; i < ui->lstImagePairs->count(); ++i) {
                     auto *item = ui->lstImagePairs->item(i);
-                    int itemIdx = item->data(Qt::UserRole).toInt();
-                    if (itemIdx >= 0 && itemIdx < static_cast<int>(displayedItems_.size())) {
-                        if (displayedItems_[itemIdx].pair.pairId() == foundPair.pairId()) {
-                            ui->lstImagePairs->setCurrentRow(i);
-                            onPairSelected(item);
-                            foundInList = true;
-                            break;
-                        }
+                    int idx = item->data(Qt::UserRole).toInt();
+                    if (idx >= 0 && idx < static_cast<int>(displayedItems_.size()) &&
+                        displayedItems_[idx].pair.pairId() == foundPair.pairId()) {
+                        ui->lstImagePairs->setCurrentRow(i);
+                        onPairSelected(item);
+                        ui->lblSystemStatus->setText(QString("Đã tự động bắt cặp chính xác cho ảnh stem '%1' (%2/%3).")
+                                                         .arg(QString::fromStdString(stem))
+                                                         .arg(QString::fromStdString(foundPair.datasetId()))
+                                                         .arg(QString::fromStdString(foundPair.partitionId().value())));
+                        break;
                     }
                 }
             }
-
-            ui->lblSystemStatus->setText(QString("Đã tự động bắt cặp chính xác cho ảnh '%1' (Stem: %2 | Partition: %3).")
-                                             .arg(QString::fromStdString(filePath.filename().string()))
-                                             .arg(QString::fromStdString(foundPair.sourceStem()))
-                                             .arg(QString::fromStdString(foundPair.partitionId().value())));
         } else {
             QMessageBox::information(this, "Không tìm thấy cặp ảnh",
-                                     QString("Không tìm thấy cặp ảnh tương ứng cho tập tin '%1' trong bộ dữ liệu %2.")
-                                         .arg(QString::fromStdString(filePath.filename().string()))
-                                         .arg(currentDatasetId_.toUpper()));
+                                     QString("Không tìm thấy cặp ảnh tương ứng cho tập tin '%1' trong bộ dữ liệu.").arg(QString::fromStdString(filePath.filename().string())));
         }
     } catch (const std::exception &ex) {
         QMessageBox::critical(this, "Lỗi Bắt Cặp", QString("Đã xảy ra lỗi khi tìm cặp ảnh:\n%1").arg(ex.what()));
@@ -913,6 +991,7 @@ void MainWindow::onClearQueueClicked()
     try {
         manualSelectionQueue_.clear();
         ui->lblSystemStatus->setText("Đã làm trống Selection Queue.");
+
         applyFiltersAndModes();
     } catch (const std::exception &ex) {
         ui->lblSystemStatus->setText(QString("Lỗi xóa Queue: %1").arg(ex.what()));
@@ -1045,7 +1124,7 @@ void MainWindow::onViewModeChanged(int index)
 
     try {
         QString mode = ui->cbViewMode->currentData().toString();
-        bool isSampleOrQueue = (mode == "sample" || mode == "queue");
+        bool isSampleOrQueue = (mode == "sample" || mode == "queue" || mode == "random");
         ui->lblSampleCountLabel->setVisible(isSampleOrQueue);
         ui->spnSampleCount->setVisible(isSampleOrQueue);
 
@@ -1062,7 +1141,7 @@ void MainWindow::onSampleCountChanged(int value)
 
     try {
         QString mode = ui->cbViewMode->currentData().toString();
-        if (mode == "sample" || mode == "queue") {
+        if (mode == "sample" || mode == "queue" || mode == "random") {
             applyFiltersAndModes();
         }
     } catch (const std::exception &ex) {

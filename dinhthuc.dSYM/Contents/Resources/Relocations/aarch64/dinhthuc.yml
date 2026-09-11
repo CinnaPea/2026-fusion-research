@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     '/Users/soncris/2026-fusion-research/dinhthuc'
+relocations:     []
+...

@@ -257,7 +257,7 @@
             </font>
            </property>
            <property name="text">
-            <string>Tổng số: 0 cặp ảnh</string>
+            <string>Tổng số:  cặp ảnh</string>
            </property>
            <property name="alignment">
             <set>Qt::AlignmentFlag::AlignCenter</set>
