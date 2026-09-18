@@ -112,6 +112,9 @@ add_library(qart_core STATIC
         src/core/datasets/dataset_adapter.cpp
         src/core/datasets/dataset_adapter.h
 
+        src/core/datasets/canonical_pair_lookup.cpp
+        src/core/datasets/canonical_pair_lookup.h
+
         src/core/datasets/llvip_adapter.cpp
         src/core/datasets/llvip_adapter.h
 
@@ -581,6 +584,20 @@ if(BUILD_TESTING)
     add_test(
             NAME DatasetAdapterContract
             COMMAND test_dataset_adapter
+    )
+
+    add_executable(test_canonical_pair_lookup
+            tests/datasets/test_canonical_pair_lookup.cpp
+    )
+
+    target_link_libraries(test_canonical_pair_lookup
+            PRIVATE
+            qart_core
+    )
+
+    add_test(
+            NAME CanonicalPairLookupContract
+            COMMAND test_canonical_pair_lookup
     )
 
     add_executable(test_llvip_adapter

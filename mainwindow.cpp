@@ -4,6 +4,7 @@
 #include "core/datasets/llvip_adapter.h"
 #include "core/datasets/msrs_adapter.h"
 #include "core/datasets/roadscene_adapter.h"
+#include "core/datasets/canonical_pair_lookup.h"
 #include "core/domain/datasets/dataset_exceptions.h"
 #include "core/domain/datasets/dataset_pair.h"
 #include "core/domain/validation/pair_validation_policy.h"
@@ -11,6 +12,7 @@
 #include "core/domain/validation/pair_validation_status.h"
 #include "core/imaging/opencv_image_decoder.h"
 #include "core/manifests/csv_validation_manifest_writer.h"
+#include "core/manifests/csv_validation_manifest_reader.h"
 #include "core/manifests/validation_manifest.h"
 #include "core/manifests/validation_manifest_row.h"
 #include "core/validation/pair_validator.h"
@@ -40,6 +42,7 @@ using qart::core::domain::validation::PairValidationResult;
 using qart::core::domain::validation::PairValidationStatus;
 using qart::core::imaging::OpenCvImageDecoder;
 using qart::core::manifests::CsvValidationManifestWriter;
+using qart::core::manifests::CsvValidationManifestReader;
 using qart::core::manifests::ValidationManifest;
 using qart::core::manifests::ValidationManifestRow;
 using qart::core::validation::PairValidator;
@@ -240,6 +243,45 @@ PairValidationResult MainWindow::getOrValidatePair(const DatasetPair &pair)
     return result;
 }
 
+void MainWindow::loadCanonicalValidationManifest()
+{
+    manifestResults_.clear();
+
+    const std::filesystem::path manifestPath =
+        datasetRoot_ / "validation_manifest_report.csv";
+    if (!std::filesystem::is_regular_file(manifestPath)) {
+        return;
+    }
+
+    CsvValidationManifestReader reader;
+    const ValidationManifest manifest = reader.read(manifestPath);
+    for (auto result : manifest.toResults()) {
+        manifestResults_.emplace(result.pair().pairId(), std::move(result));
+    }
+}
+
+std::vector<PairValidationResult>
+MainWindow::previewCandidates(const std::vector<DatasetPair> &pairs) const
+{
+    std::vector<PairValidationResult> results;
+    results.reserve(pairs.size());
+
+    for (const auto &pair : pairs) {
+        const auto cached = validatedResultsCache_.find(pair.pairId());
+        if (cached != validatedResultsCache_.end()) {
+            results.push_back(cached->second);
+            continue;
+        }
+
+        const auto manifested = manifestResults_.find(pair.pairId());
+        if (manifested != manifestResults_.end()) {
+            results.push_back(manifested->second);
+        }
+    }
+
+    return results;
+}
+
 void MainWindow::onBrowseDatasetClicked()
 {
     try {
@@ -266,6 +308,7 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
         manifestRows_.clear();
         allDiscoveredPairs_.clear();
         validatedResultsCache_.clear();
+        manifestResults_.clear();
 
         datasetRoot_ = resolveDatasetRoot(dirPath.toStdString());
 
@@ -341,6 +384,7 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
 
         currentDatasetId_ = QString::fromStdString(detectedDatasetId);
         allDiscoveredPairs_ = std::move(discoveredPairs);
+        loadCanonicalValidationManifest();
 
         // Update controls reflectively
         isUpdatingControls_ = true;
@@ -426,11 +470,8 @@ void MainWindow::applyFiltersAndModes()
             // Mode B: Core PreviewPairSelector (Deterministic Canonical Sampling)
             int countPerPartition = std::max(2, ui->spnSampleCount->value());
 
-            std::vector<PairValidationResult> candidateResults;
-            candidateResults.reserve(filteredPairs.size());
-            for (const auto &pair : filteredPairs) {
-                candidateResults.push_back(getOrValidatePair(pair));
-            }
+            const std::vector<PairValidationResult> candidateResults =
+                previewCandidates(filteredPairs);
 
             try {
                 PreviewSelectionRequest request(countPerPartition, {});
@@ -448,44 +489,31 @@ void MainWindow::applyFiltersAndModes()
             // Mode C: Selection Queue (Auto Sample + Manual Add)
             int countPerPartition = std::max(2, ui->spnSampleCount->value());
 
-            std::set<std::string> addedPairIds;
+            const std::vector<PairValidationResult> candidateResults =
+                previewCandidates(filteredPairs);
 
-            // 1. Add Auto samples from core selector
-            std::vector<PairValidationResult> candidateResults;
-            candidateResults.reserve(filteredPairs.size());
-            for (const auto &pair : filteredPairs) {
-                candidateResults.push_back(getOrValidatePair(pair));
+            std::vector<std::string> explicitPairIds;
+            for (const auto &manualPair : manualSelectionQueue_) {
+                if (selectedPartition.isEmpty() ||
+                    manualPair.partitionId().value() == selectedPartition.toStdString()) {
+                    explicitPairIds.push_back(manualPair.pairId());
+                }
             }
 
             try {
-                PreviewSelectionRequest request(countPerPartition, {});
+                PreviewSelectionRequest request(countPerPartition, explicitPairIds);
                 PreviewPairSelector selector;
                 PreviewSelection selection = selector.select(candidateResults, request);
 
                 for (const auto &res : selection.automaticResults()) {
-                    if (addedPairIds.insert(res.pair().pairId()).second) {
-                        displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
-                    }
+                    displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
                 }
-            } catch (...) {
-                // Fall through to manual items
-            }
 
-            // 2. Add Manual items (Deduplicated)
-            for (const auto &manualPair : manualSelectionQueue_) {
-                if (selectedPartition.isEmpty() || manualPair.partitionId().value() == selectedPartition.toStdString()) {
-                    if (addedPairIds.insert(manualPair.pairId()).second) {
-                        displayedItems_.push_back(PairItemEntry{manualPair, std::nullopt, "[MANUAL]"});
-                    } else {
-                        // If already present from AUTO, upgrade tag to MANUAL
-                        for (auto &item : displayedItems_) {
-                            if (item.pair.pairId() == manualPair.pairId()) {
-                                item.sourceTag = "[MANUAL]";
-                                break;
-                            }
-                        }
-                    }
+                for (const auto &res : selection.explicitResults()) {
+                    displayedItems_.push_back(PairItemEntry{res.pair(), res, "[MANUAL]"});
                 }
+            } catch (const std::exception &ex) {
+                ui->lblSystemStatus->setText(QString("PreviewPairSelector error: %1").arg(ex.what()));
             }
         }
         else if (viewMode == "random") {
@@ -744,28 +772,25 @@ void MainWindow::onSelectSingleImageClicked()
             return;
         }
 
-        // 1. Identify dataset and partition from file path
-        std::string pStrLower = filePath.generic_string();
-        std::transform(pStrLower.begin(), pStrLower.end(), pStrLower.begin(), ::tolower);
-
-        std::string detectedDataset = "";
-        if (pStrLower.find("/llvip/") != std::string::npos || pStrLower.find("llvip") != std::string::npos) {
-            detectedDataset = "llvip";
-        } else if (pStrLower.find("/msrs/") != std::string::npos || pStrLower.find("msrs") != std::string::npos) {
-            detectedDataset = "msrs";
-        } else if (pStrLower.find("/roadscene/") != std::string::npos || pStrLower.find("roadscene") != std::string::npos) {
-            detectedDataset = "roadscene";
+        // 1. Identify the dataset from the canonical raw/<dataset>/... path.
+        std::error_code relativeError;
+        const std::filesystem::path relativeToRoot =
+            std::filesystem::relative(filePath, resolvedRoot, relativeError);
+        std::vector<std::string> pathComponents;
+        if (!relativeError) {
+            for (const auto &component : relativeToRoot) {
+                std::string value = component.string();
+                std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+                pathComponents.push_back(std::move(value));
+            }
         }
 
-        std::string detectedPartition = "";
-        if (pStrLower.find("/train/") != std::string::npos || pStrLower.find("/train") != std::string::npos) {
-            detectedPartition = "train";
-        } else if (pStrLower.find("/test/") != std::string::npos || pStrLower.find("/test") != std::string::npos) {
-            detectedPartition = "test";
-        } else if (pStrLower.find("/val/") != std::string::npos || pStrLower.find("/val") != std::string::npos) {
-            detectedPartition = "val";
-        } else if (detectedDataset == "roadscene") {
-            detectedPartition = "all";
+        std::string detectedDataset;
+        if (pathComponents.size() >= 3 && pathComponents[0] == "raw") {
+            const std::string &candidate = pathComponents[1];
+            if (candidate == "llvip" || candidate == "msrs" || candidate == "roadscene") {
+                detectedDataset = candidate;
+            }
         }
 
         if (detectedDataset.empty()) {
@@ -794,58 +819,17 @@ void MainWindow::onSelectSingleImageClicked()
             loadDatasetFromDirectory(QString::fromStdString(resolvedRoot.string()));
         }
 
-        // 3. Find canonical pair by pairId, relative path, or stem + partition
+        // 3. Resolve only an exact canonical visible/thermal input path.
+        // Auxiliary folders must never pair merely because their stem matches.
         std::string stem = filePath.stem().string();
-        std::filesystem::path relPath = std::filesystem::relative(filePath, resolvedRoot);
-        std::string relPathStr = relPath.generic_string();
+        const auto found = qart::core::datasets::CanonicalPairLookup::findByImagePath(
+            resolvedRoot,
+            filePath,
+            allDiscoveredPairs_
+        );
 
-        std::string expectedPairId = detectedDataset + "_" + detectedPartition + "_" + stem;
-
-        int targetIndex = -1;
-        // Priority 1: Match by expected pair ID
-        if (!detectedPartition.empty()) {
-            for (std::size_t i = 0; i < allDiscoveredPairs_.size(); ++i) {
-                if (allDiscoveredPairs_[i].pairId() == expectedPairId) {
-                    targetIndex = static_cast<int>(i);
-                    break;
-                }
-            }
-        }
-
-        // Priority 2: Match by relative path
-        if (targetIndex < 0) {
-            for (std::size_t i = 0; i < allDiscoveredPairs_.size(); ++i) {
-                const auto &p = allDiscoveredPairs_[i];
-                if (p.visibleRelativePath() == relPathStr || p.thermalRelativePath() == relPathStr) {
-                    targetIndex = static_cast<int>(i);
-                    break;
-                }
-            }
-        }
-
-        // Priority 3: Match by stem and partition
-        if (targetIndex < 0) {
-            for (std::size_t i = 0; i < allDiscoveredPairs_.size(); ++i) {
-                const auto &p = allDiscoveredPairs_[i];
-                if (p.sourceStem() == stem && (detectedPartition.empty() || p.partitionId().value() == detectedPartition)) {
-                    targetIndex = static_cast<int>(i);
-                    break;
-                }
-            }
-        }
-
-        // Priority 4: Match by stem only
-        if (targetIndex < 0) {
-            for (std::size_t i = 0; i < allDiscoveredPairs_.size(); ++i) {
-                if (allDiscoveredPairs_[i].sourceStem() == stem) {
-                    targetIndex = static_cast<int>(i);
-                    break;
-                }
-            }
-        }
-
-        if (targetIndex >= 0) {
-            const auto &foundPair = allDiscoveredPairs_[targetIndex];
+        if (found.has_value()) {
+            const DatasetPair &foundPair = *found;
 
             // Switch partition filter if current filter excludes this pair
             QString targetPartition = QString::fromStdString(foundPair.partitionId().value());
@@ -907,8 +891,14 @@ void MainWindow::onSelectSingleImageClicked()
                 }
             }
         } else {
-            QMessageBox::information(this, "Không tìm thấy cặp ảnh",
-                                     QString("Không tìm thấy cặp ảnh tương ứng cho tập tin '%1' trong bộ dữ liệu.").arg(QString::fromStdString(filePath.filename().string())));
+            QMessageBox::information(
+                this,
+                "Ảnh không phải canonical input",
+                QString("Tập tin '%1' không nằm trong modality input canonical của %2. "
+                        "Ảnh auxiliary sẽ không được ghép chỉ dựa trên stem.")
+                    .arg(QString::fromStdString(filePath.filename().string()))
+                    .arg(QString::fromStdString(detectedDataset).toUpper())
+            );
         }
     } catch (const std::exception &ex) {
         QMessageBox::critical(this, "Lỗi Bắt Cặp", QString("Đã xảy ra lỗi khi tìm cặp ảnh:\n%1").arg(ex.what()));
@@ -926,6 +916,9 @@ void MainWindow::onFullValidationClicked()
         ui->prgLoading->setVisible(true);
         ui->prgLoading->setValue(0);
         ui->lblSystemStatus->setText("Đang thực hiện kiểm định và giải mã toàn bộ cặp ảnh...");
+
+        // This action is explicitly a fresh physical re-validation.
+        validatedResultsCache_.clear();
 
         std::size_t total = allDiscoveredPairs_.size();
         for (std::size_t i = 0; i < total; ++i) {

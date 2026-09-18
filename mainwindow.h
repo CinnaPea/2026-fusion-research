@@ -73,6 +73,12 @@ private:
     qart::core::domain::validation::PairValidationResult
     getOrValidatePair(const qart::core::domain::datasets::DatasetPair &pair);
 
+    void loadCanonicalValidationManifest();
+
+    [[nodiscard]]
+    std::vector<qart::core::domain::validation::PairValidationResult>
+    previewCandidates(const std::vector<qart::core::domain::datasets::DatasetPair> &pairs) const;
+
     [[nodiscard]]
     qart::core::domain::validation::PairValidationStatus
     safeParseStatus(const std::string &statusStr) const;
@@ -94,6 +100,9 @@ private:
 
     // On-demand validation cache by pairId
     std::map<std::string, qart::core::domain::validation::PairValidationResult> validatedResultsCache_;
+
+    // Typed Schema 2.0 results used for selection without decoding every image.
+    std::map<std::string, qart::core::domain::validation::PairValidationResult> manifestResults_;
 
     // Currently filtered and displayed item entries
     std::vector<PairItemEntry> displayedItems_;
