@@ -1,48 +1,26 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-#include "core/datasets/canonical_pair_lookup.h"
 #include "core/domain/datasets/dataset_pair.h"
-#include "core/domain/validation/pair_validation_policy.h"
 #include "core/domain/validation/pair_validation_result.h"
 #include "core/domain/validation/pair_validation_status.h"
-#include "core/imaging/opencv_image_decoder.h"
-#include "core/manifests/csv_validation_manifest_writer.h"
-#include "core/manifests/validation_manifest.h"
-#include "core/manifests/validation_manifest_row.h"
-#include "core/validation/pair_validator.h"
-#include "core/visualization/preview_pair_selector.h"
-#include "core/visualization/preview_selection.h"
 
 #include <QColor>
 #include <QCoreApplication>
 #include <QFileDialog>
-#include <QFileInfo>
-#include <QImageReader>
 #include <QMessageBox>
 #include <QPixmap>
 #include <QResizeEvent>
 #include <algorithm>
-#include <cctype>
 #include <filesystem>
 #include <map>
 #include <random>
-#include <set>
 #include <stdexcept>
 #include <vector>
 
 using qart::core::domain::datasets::DatasetPair;
-using qart::core::domain::validation::PairValidationPolicy;
 using qart::core::domain::validation::PairValidationResult;
 using qart::core::domain::validation::PairValidationStatus;
-using qart::core::imaging::OpenCvImageDecoder;
-using qart::core::manifests::CsvValidationManifestWriter;
-using qart::core::manifests::ValidationManifest;
-using qart::core::manifests::ValidationManifestRow;
-using qart::core::validation::PairValidator;
-using qart::core::visualization::PreviewPairSelector;
-using qart::core::visualization::PreviewSelection;
-using qart::core::visualization::PreviewSelectionRequest;
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -132,30 +110,6 @@ void MainWindow::resizeEvent(QResizeEvent *event)
     }
 }
 
-PairValidationResult MainWindow::getOrValidatePair(const DatasetPair &pair)
-{
-    auto it = validatedResultsCache_.find(pair.pairId());
-    if (it != validatedResultsCache_.end()) {
-        return it->second;
-    }
-
-    OpenCvImageDecoder decoder;
-    PairValidationPolicy policy =
-        appController_.validationPolicyForDataset(
-            pair.datasetId()
-        );
-
-    PairValidator validator(decoder, policy);
-
-    PairValidationResult result =
-        validator.validatePair(
-            appController_.datasetRoot(),
-            pair
-        );
-    validatedResultsCache_.emplace(pair.pairId(), result);
-    return result;
-}
-
 void MainWindow::onBrowseDatasetClicked()
 {
     try {
@@ -180,9 +134,6 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
         ui->lstImagePairs->clear();
 
         displayedItems_.clear();
-        manifestRows_.clear();
-        validatedResultsCache_.clear();
-        manualSelectionQueue_.clear();
 
         ui->lblSystemStatus->setText(
             "Đang quét cấu trúc tập dữ liệu..."
@@ -292,18 +243,11 @@ void MainWindow::applyFiltersAndModes()
     try {
         ui->lstImagePairs->clear();
         displayedItems_.clear();
-        manifestRows_.clear();
 
         if (appController_.discoveredPairs().empty()) {
             ui->lblPairCount->setText("Tổng số: 0 cặp ảnh");
             ui->lblSystemStatus->setText("Chưa có dữ liệu cặp ảnh.");
             return;
-        }
-
-        // Set of manual queue IDs for fast lookup
-        std::set<std::string> manualQueueIds;
-        for (const auto &p : manualSelectionQueue_) {
-            manualQueueIds.insert(p.pairId());
         }
 
         // 1. Filter by Partition
@@ -332,44 +276,62 @@ void MainWindow::applyFiltersAndModes()
         }
         else if (viewMode == "sample") {
             // Mode B: Core PreviewPairSelector (Deterministic Canonical Sampling)
-            int countPerPartition = std::max(2, ui->spnSampleCount->value());
+            const int countPerPartition = std::max(2,ui->spnSampleCount->value());
 
-            const std::vector<PairValidationResult> candidateResults =
-                appController_.previewCandidates(filteredPairs);
+            const auto selection =
+                appController_.selectAutomaticPreview(
+                    filteredPairs,
+                    countPerPartition
+                );
 
-            PreviewSelectionRequest request(countPerPartition, {});
-            PreviewPairSelector selector;
-            PreviewSelection selection = selector.select(candidateResults, request);
-
-            for (const auto &res : selection.automaticResults()) {
-                displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
+            for (
+                const auto& result :
+                selection.automaticResults()
+            ) {
+                displayedItems_.push_back(
+                    PairItemEntry{
+                        result.pair(),
+                        result,
+                        "[AUTO]"
+                    }
+                );
             }
         }
         else if (viewMode == "queue") {
             // Mode C: Selection Queue (Auto Sample + Manual Add)
-            int countPerPartition = std::max(2, ui->spnSampleCount->value());
+            const int countPerPartition = std::max(2,ui->spnSampleCount->value());
 
-            const std::vector<PairValidationResult> candidateResults =
-                appController_.previewCandidates(filteredPairs);
+            const auto selection =
+                appController_.selectQueuedPreview(
+                    filteredPairs,
+                    countPerPartition,
+                    selectedPartition.toStdString()
+                );
 
-            std::vector<std::string> explicitPairIds;
-            for (const auto &manualPair : manualSelectionQueue_) {
-                if (selectedPartition.isEmpty() ||
-                    manualPair.partitionId().value() == selectedPartition.toStdString()) {
-                    explicitPairIds.push_back(manualPair.pairId());
-                }
+            for (
+                const auto& result :
+                selection.automaticResults()
+            ) {
+                displayedItems_.push_back(
+                    PairItemEntry{
+                        result.pair(),
+                        result,
+                        "[AUTO]"
+                    }
+                );
             }
 
-            PreviewSelectionRequest request(countPerPartition, explicitPairIds);
-            PreviewPairSelector selector;
-            PreviewSelection selection = selector.select(candidateResults, request);
-
-            for (const auto &res : selection.automaticResults()) {
-                displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
-            }
-
-            for (const auto &res : selection.explicitResults()) {
-                displayedItems_.push_back(PairItemEntry{res.pair(), res, "[MANUAL]"});
+            for (
+                const auto& result :
+                selection.explicitResults()
+            ) {
+                displayedItems_.push_back(
+                    PairItemEntry{
+                        result.pair(),
+                        result,
+                        "[MANUAL]"
+                    }
+                );
             }
         }
         else if (viewMode == "random") {
@@ -402,17 +364,14 @@ void MainWindow::applyFiltersAndModes()
             const auto &pair = itemEntry.pair;
 
             QString sourcePrefix = itemEntry.sourceTag.isEmpty() ? "" : (itemEntry.sourceTag + " ");
-            QString inQueueSuffix = (manualQueueIds.count(pair.pairId()) > 0) ? " [IN QUEUE]" : "";
+            QString inQueueSuffix = appController_.isManuallyQueued(pair.pairId()) ? " [IN QUEUE]" : "";
 
             QString itemText = QString("%1%2 (%3)%4")
-                                   .arg(sourcePrefix)
-                                   .arg(QString::fromStdString(pair.sourceStem()))
-                                   .arg(QString::fromStdString(pair.pairId()))
-                                   .arg(inQueueSuffix);
+                                   .arg(sourcePrefix, QString::fromStdString(pair.sourceStem()), QString::fromStdString(pair.pairId()), inQueueSuffix);
 
             auto *listItem = new QListWidgetItem(itemText, ui->lstImagePairs);
             listItem->setData(Qt::UserRole, static_cast<int>(i));
-            listItem->setForeground(QBrush(QColor("#1565C0"))); // Soft blue default
+            listItem->setForeground(QBrush(QColor(0x1565C0))); // Soft blue default
         }
 
         QString modeName = "Duyệt toàn bộ";
@@ -426,11 +385,9 @@ void MainWindow::applyFiltersAndModes()
 
         ui->lblSystemStatus->setText(QString("Đã tải %1 cặp ảnh (%2 - %3). Chọn một cặp để xem.")
                                          .arg(displayedItems_.size())
-                                         .arg(
-                                            QString::fromStdString(
+                                         .arg(QString::fromStdString(
                                                 appController_.currentDatasetId()
-                                            ).toUpper())
-                                         .arg(modeName));
+                                            ).toUpper(), modeName));
 
         // Select first item if available
         if (ui->lstImagePairs->count() > 0) {
@@ -459,7 +416,7 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
         // On-demand validate current selected pair
         PairItemEntry &entry = displayedItems_[index];
         if (!entry.validationResult.has_value()) {
-            entry.validationResult = getOrValidatePair(entry.pair);
+            entry.validationResult = appController_.getOrValidatePair(entry.pair);
         }
 
         // Update list item text and color with actual validated status
@@ -468,22 +425,15 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
         QString colorHex = getStatusColorHex(status);
 
         // Check if in manual queue
-        bool isManualQueued = false;
-        for (const auto &p : manualSelectionQueue_) {
-            if (p.pairId() == entry.pair.pairId()) {
-                isManualQueued = true;
-                break;
-            }
-        }
+        const bool isManualQueued =
+            appController_.isManuallyQueued(
+                entry.pair.pairId()
+            );
         QString inQueueSuffix = isManualQueued ? " [IN QUEUE]" : "";
 
         QString sourcePrefix = entry.sourceTag.isEmpty() ? "" : (entry.sourceTag + " ");
         item->setText(QString("[%1] %2%3 (%4)%5")
-                          .arg(tagText)
-                          .arg(sourcePrefix)
-                          .arg(QString::fromStdString(entry.pair.sourceStem()))
-                          .arg(QString::fromStdString(entry.pair.pairId()))
-                          .arg(inQueueSuffix));
+                          .arg(tagText, sourcePrefix, QString::fromStdString(entry.pair.sourceStem()), QString::fromStdString(entry.pair.pairId()), inQueueSuffix));
         item->setForeground(QBrush(QColor(colorHex)));
 
         displayPair(entry);
@@ -492,14 +442,11 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
     }
 }
 
-void MainWindow::displayPair(const PairItemEntry &entry)
-{
+void MainWindow::displayPair(const PairItemEntry &entry) const {
     try {
         const auto &pair = entry.pair;
         ui->lblCurrentPairId->setText(QString("Cặp ảnh: %1 (Stem: %2 | Partition: %3)")
-                                          .arg(QString::fromStdString(pair.pairId()))
-                                          .arg(QString::fromStdString(pair.sourceStem()))
-                                          .arg(QString::fromStdString(pair.partitionId().value())));
+                                          .arg(QString::fromStdString(pair.pairId()), QString::fromStdString(pair.sourceStem()), QString::fromStdString(pair.partitionId().value())));
 
         PairValidationStatus status = PairValidationStatus::Valid;
         QString descText = "Chưa kiểm định chi tiết.";
@@ -550,8 +497,7 @@ void MainWindow::displayPair(const PairItemEntry &entry)
                                 ? QString("%1 x %2 px").arg(*visWidth).arg(*visHeight)
                                 : "--";
         ui->lblVisibleInfo->setText(QString("File: %1\nKích thước: %2 | OpenCV Decode: %3")
-                                        .arg(QString::fromStdString(pair.visibleRelativePath()))
-                                        .arg(visDimStr)
+                                        .arg(QString::fromStdString(pair.visibleRelativePath()), visDimStr)
                                         .arg(visDecoded ? "OK" : (entry.validationResult.has_value() ? "Lỗi" : "Chờ")));
 
         // Render Thermal Image (A2)
@@ -560,8 +506,7 @@ void MainWindow::displayPair(const PairItemEntry &entry)
                                 ? QString("%1 x %2 px").arg(*thrWidth).arg(*thrHeight)
                                 : "--";
         ui->lblThermalInfo->setText(QString("File: %1\nKích thước: %2 | OpenCV Decode: %3")
-                                        .arg(QString::fromStdString(pair.thermalRelativePath()))
-                                        .arg(thrDimStr)
+                                        .arg(QString::fromStdString(pair.thermalRelativePath()), thrDimStr)
                                         .arg(thrDecoded ? "OK" : (entry.validationResult.has_value() ? "Lỗi" : "Chờ")));
     } catch (const std::exception &ex) {
         ui->lblSystemStatus->setText(QString("Lỗi hiển thị cặp ảnh: %1").arg(ex.what()));
@@ -617,153 +562,322 @@ void MainWindow::onSelectSingleImageClicked()
         const QString imageFile = QFileDialog::getOpenFileName(
             this,
             "Chọn 1 tập tin ảnh (Hệ thống sẽ tự động tìm ảnh cặp tương ứng)",
-            ui->txtDatasetDir->text().isEmpty() ? QDir::homePath() : ui->txtDatasetDir->text(),
+            ui->txtDatasetDir->text().isEmpty()
+                ? QDir::homePath()
+                : ui->txtDatasetDir->text(),
             "Images (*.jpg *.jpeg *.png *.bmp)"
         );
 
-        if (imageFile.isEmpty()) return;
-
-        std::filesystem::path filePath(imageFile.toStdString());
-        if (!std::filesystem::is_regular_file(filePath)) {
-            QMessageBox::warning(this, "Tập tin không hợp lệ", "Đường dẫn được chọn không phải là tập tin ảnh hợp lệ.");
+        if (imageFile.isEmpty()) {
             return;
         }
 
-        std::filesystem::path resolvedRoot = appController_.resolveDatasetRoot(filePath);
-        if (!std::filesystem::exists(resolvedRoot / "raw")) {
-            QMessageBox::warning(this, "Không tìm thấy Dataset", "Tập tin ảnh không nằm trong cấu trúc thư mục bộ dữ liệu chuẩn (QART_Datasets/raw/...).");
-            return;
-        }
-
-        // 1. Identify the dataset from the canonical raw/<dataset>/... path.
-        std::error_code relativeError;
-        const std::filesystem::path relativeToRoot =
-            std::filesystem::relative(filePath, resolvedRoot, relativeError);
-        std::vector<std::string> pathComponents;
-        if (!relativeError) {
-            for (const auto &component : relativeToRoot) {
-                std::string value = component.string();
-                std::transform(value.begin(), value.end(), value.begin(), ::tolower);
-                pathComponents.push_back(std::move(value));
-            }
-        }
-
-        std::string detectedDataset;
-        if (pathComponents.size() >= 3 && pathComponents[0] == "raw") {
-            const std::string &candidate = pathComponents[1];
-            if (candidate == "llvip" || candidate == "msrs" || candidate == "roadscene") {
-                detectedDataset = candidate;
-            }
-        }
-
-        if (detectedDataset.empty()) {
-            QMessageBox::warning(this, "Không nhận diện được Dataset",
-                                 QString("Tập tin ảnh '%1' không thuộc các bộ dữ liệu được hỗ trợ (LLVIP, MSRS, RoadScene).")
-                                     .arg(QString::fromStdString(filePath.filename().string())));
-            return;
-        }
-
-        // 2. Switch dataset if datasetRoot or datasetId is different
-        bool datasetChanged = appController_.datasetRoot() != resolvedRoot ||
-                              appController_.currentDatasetId() != detectedDataset ||
-                              appController_.discoveredPairs().empty();
-
-        if (datasetChanged) {
-            ui->txtDatasetDir->setText(QString::fromStdString(resolvedRoot.string()));
-
-            isUpdatingControls_ = true;
-            int dsIdx = ui->cbDatasetSelect->findData(QString::fromStdString(detectedDataset));
-            if (dsIdx >= 0) {
-                ui->cbDatasetSelect->setCurrentIndex(dsIdx);
-            }
-            isUpdatingControls_ = false;
-
-            loadDatasetFromDirectory(QString::fromStdString(resolvedRoot.string()));
-        }
-
-        // 3. Resolve only an exact canonical visible/thermal input path.
-        // Auxiliary folders must never pair merely because their stem matches.
-        std::string stem = filePath.stem().string();
-        const auto found = qart::core::datasets::CanonicalPairLookup::findByImagePath(
-            resolvedRoot,
-            filePath,
-            appController_.discoveredPairs()
+        const std::filesystem::path filePath(
+            imageFile.toStdString()
         );
 
-        if (found.has_value()) {
-            const DatasetPair &foundPair = *found;
+        if (!std::filesystem::is_regular_file(filePath)) {
+            QMessageBox::warning(
+                this,
+                "Tập tin không hợp lệ",
+                "Đường dẫn được chọn không phải là tập tin ảnh hợp lệ."
+            );
+            return;
+        }
 
-            // Switch partition filter if current filter excludes this pair
-            QString targetPartition = QString::fromStdString(foundPair.partitionId().value());
-            if (ui->cbPartitionSelect->currentData().toString() != "" &&
-                ui->cbPartitionSelect->currentData().toString() != targetPartition) {
-                isUpdatingControls_ = true;
-                int partIdx = ui->cbPartitionSelect->findData(targetPartition);
-                if (partIdx >= 0) {
-                    ui->cbPartitionSelect->setCurrentIndex(partIdx);
-                } else {
-                    ui->cbPartitionSelect->setCurrentIndex(0); // All partitions
-                }
-                isUpdatingControls_ = false;
-                applyFiltersAndModes();
-            }
+        const auto lookup =
+            appController_.lookupCanonicalImage(
+                filePath
+            );
 
-            // Locate in displayed list widget
-            bool foundInList = false;
-            for (int i = 0; i < ui->lstImagePairs->count(); ++i) {
-                auto *item = ui->lstImagePairs->item(i);
-                int idx = item->data(Qt::UserRole).toInt();
-                if (idx >= 0 && idx < static_cast<int>(displayedItems_.size()) &&
-                    displayedItems_[idx].pair.pairId() == foundPair.pairId()) {
-                    ui->lstImagePairs->setCurrentRow(i);
-                    onPairSelected(item);
-                    ui->lblSystemStatus->setText(QString("Đã tự động bắt cặp chính xác cho ảnh stem '%1' (%2/%3).")
-                                                     .arg(QString::fromStdString(stem))
-                                                     .arg(QString::fromStdString(foundPair.datasetId()))
-                                                     .arg(QString::fromStdString(foundPair.partitionId().value())));
-                    foundInList = true;
-                    break;
-                }
-            }
+        if (
+            lookup.status
+            == qart::application::
+                SingleImageLookupStatus::UnsupportedDataset
+        ) {
+            QMessageBox::warning(
+                this,
+                "Không nhận diện được Dataset",
+                QString(
+                    "Tập tin ảnh '%1' không thuộc các bộ dữ liệu "
+                    "được hỗ trợ (LLVIP, MSRS, RoadScene)."
+                ).arg(
+                    QString::fromStdString(
+                        filePath.filename().string()
+                    )
+                )
+            );
+            return;
+        }
 
-            // If not found in list (e.g. Mode B sample excluded this pair), switch to Mode A (Full)
-            if (!foundInList) {
-                isUpdatingControls_ = true;
-                int fullIdx = ui->cbViewMode->findData("full");
-                if (fullIdx >= 0) {
-                    ui->cbViewMode->setCurrentIndex(fullIdx);
-                }
-                isUpdatingControls_ = false;
+        if (
+            lookup.status
+            == qart::application::
+                SingleImageLookupStatus::DatasetLoadFailed
+        ) {
+            QMessageBox::warning(
+                this,
+                "Không thể tải Dataset",
+                QString(
+                    "Không thể tải dataset '%1' từ đường dẫn:\n%2"
+                )
+                    .arg(QString::fromStdString(
+                            lookup.datasetId
+                        ).toUpper(), QString::fromStdString(
+                            lookup.datasetRoot.string()
+                        ))
+            );
+            return;
+        }
 
-                applyFiltersAndModes();
-
-                for (int i = 0; i < ui->lstImagePairs->count(); ++i) {
-                    auto *item = ui->lstImagePairs->item(i);
-                    int idx = item->data(Qt::UserRole).toInt();
-                    if (idx >= 0 && idx < static_cast<int>(displayedItems_.size()) &&
-                        displayedItems_[idx].pair.pairId() == foundPair.pairId()) {
-                        ui->lstImagePairs->setCurrentRow(i);
-                        onPairSelected(item);
-                        ui->lblSystemStatus->setText(QString("Đã tự động bắt cặp chính xác cho ảnh stem '%1' (%2/%3).")
-                                                         .arg(QString::fromStdString(stem))
-                                                         .arg(QString::fromStdString(foundPair.datasetId()))
-                                                         .arg(QString::fromStdString(foundPair.partitionId().value())));
-                        break;
-                    }
-                }
-            }
-        } else {
+        if (
+            lookup.status
+            == qart::application::
+                SingleImageLookupStatus::NonCanonicalInput
+        ) {
             QMessageBox::information(
                 this,
                 "Ảnh không phải canonical input",
-                QString("Tập tin '%1' không nằm trong modality input canonical của %2. "
-                        "Ảnh auxiliary sẽ không được ghép chỉ dựa trên stem.")
-                    .arg(QString::fromStdString(filePath.filename().string()))
-                    .arg(QString::fromStdString(detectedDataset).toUpper())
+                QString(
+                    "Tập tin '%1' không nằm trong modality input "
+                    "canonical của %2. Ảnh auxiliary sẽ không được "
+                    "ghép chỉ dựa trên stem."
+                )
+                    .arg(QString::fromStdString(
+                            filePath.filename().string()
+                        ), QString::fromStdString(
+                            lookup.datasetId
+                        ).toUpper())
+            );
+            return;
+        }
+
+        if (!lookup.pair.has_value()) {
+            throw std::runtime_error(
+                "Resolved single-image lookup returned no DatasetPair."
             );
         }
+
+        if (lookup.datasetSessionChanged) {
+            ui->txtDatasetDir->setText(
+                QString::fromStdString(
+                    lookup.datasetRoot.string()
+                )
+            );
+
+            isUpdatingControls_ = true;
+
+            const QString datasetId =
+                QString::fromStdString(
+                    lookup.datasetId
+                );
+
+            const int datasetIndex =
+                ui->cbDatasetSelect->findData(
+                    datasetId
+                );
+
+            if (datasetIndex >= 0) {
+                ui->cbDatasetSelect->setCurrentIndex(
+                    datasetIndex
+                );
+            }
+
+            ui->cbPartitionSelect->clear();
+
+            if (
+                datasetId == "llvip"
+                || datasetId == "msrs"
+            ) {
+                ui->cbPartitionSelect->addItem(
+                    "Tất cả Partition",
+                    ""
+                );
+                ui->cbPartitionSelect->addItem(
+                    "train",
+                    "train"
+                );
+                ui->cbPartitionSelect->addItem(
+                    "test",
+                    "test"
+                );
+            } else {
+                ui->cbPartitionSelect->addItem(
+                    "all (native partition)",
+                    "all"
+                );
+            }
+
+            isUpdatingControls_ = false;
+
+            displayedItems_.clear();
+
+            applyFiltersAndModes();
+        }
+
+        const DatasetPair& foundPair =
+            *lookup.pair;
+
+        const std::string stem =
+            filePath.stem().string();
+
+        const QString targetPartition =
+            QString::fromStdString(
+                foundPair.partitionId().value()
+            );
+
+        if (
+            !ui->cbPartitionSelect
+                 ->currentData()
+                 .toString()
+                 .isEmpty()
+            &&
+            ui->cbPartitionSelect
+                    ->currentData()
+                    .toString()
+                != targetPartition
+        ) {
+            isUpdatingControls_ = true;
+
+            const int partitionIndex =
+                ui->cbPartitionSelect->findData(
+                    targetPartition
+                );
+
+            if (partitionIndex >= 0) {
+                ui->cbPartitionSelect->setCurrentIndex(
+                    partitionIndex
+                );
+            } else {
+                ui->cbPartitionSelect->setCurrentIndex(0);
+            }
+
+            isUpdatingControls_ = false;
+
+            applyFiltersAndModes();
+        }
+
+        bool foundInList = false;
+
+        for (
+            int i = 0;
+            i < ui->lstImagePairs->count();
+            ++i
+        ) {
+            auto* item =
+                ui->lstImagePairs->item(i);
+
+            const int index =
+                item->data(Qt::UserRole).toInt();
+
+            if (
+                index >= 0
+                && index
+                    < static_cast<int>(
+                        displayedItems_.size()
+                    )
+                && displayedItems_[index]
+                       .pair
+                       .pairId()
+                    == foundPair.pairId()
+            ) {
+                ui->lstImagePairs->setCurrentRow(i);
+
+                onPairSelected(item);
+
+                ui->lblSystemStatus->setText(
+                    QString(
+                        "Đã tự động bắt cặp chính xác cho ảnh stem "
+                        "'%1' (%2/%3)."
+                    )
+                        .arg(QString::fromStdString(
+                                stem
+                            ), QString::fromStdString(
+                                foundPair.datasetId()
+                            ), QString::fromStdString(
+                                foundPair
+                                    .partitionId()
+                                    .value()
+                            ))
+                );
+
+                foundInList = true;
+                break;
+            }
+        }
+
+        if (!foundInList) {
+            isUpdatingControls_ = true;
+
+            const int fullModeIndex =
+                ui->cbViewMode->findData(
+                    "full"
+                );
+
+            if (fullModeIndex >= 0) {
+                ui->cbViewMode->setCurrentIndex(
+                    fullModeIndex
+                );
+            }
+
+            isUpdatingControls_ = false;
+
+            applyFiltersAndModes();
+
+            for (
+                int i = 0;
+                i < ui->lstImagePairs->count();
+                ++i
+            ) {
+                auto* item =
+                    ui->lstImagePairs->item(i);
+
+                const int index =
+                    item->data(Qt::UserRole).toInt();
+
+                if (
+                    index >= 0
+                    && index
+                        < static_cast<int>(
+                            displayedItems_.size()
+                        )
+                    && displayedItems_[index]
+                           .pair
+                           .pairId()
+                        == foundPair.pairId()
+                ) {
+                    ui->lstImagePairs->setCurrentRow(i);
+
+                    onPairSelected(item);
+
+                    ui->lblSystemStatus->setText(
+                        QString(
+                            "Đã tự động bắt cặp chính xác cho ảnh stem "
+                            "'%1' (%2/%3)."
+                        )
+                            .arg(QString::fromStdString(
+                                    stem
+                                ), QString::fromStdString(
+                                    foundPair.datasetId()
+                                ), QString::fromStdString(
+                                    foundPair
+                                        .partitionId()
+                                        .value()
+                                ))
+                    );
+
+                    break;
+                }
+            }
+        }
     } catch (const std::exception &ex) {
-        QMessageBox::critical(this, "Lỗi Bắt Cặp", QString("Đã xảy ra lỗi khi tìm cặp ảnh:\n%1").arg(ex.what()));
+        QMessageBox::critical(
+            this,
+            "Lỗi Bắt Cặp",
+            QString(
+                "Đã xảy ra lỗi khi tìm cặp ảnh:\n%1"
+            ).arg(ex.what())
+        );
     }
 }
 
@@ -771,36 +885,65 @@ void MainWindow::onFullValidationClicked()
 {
     try {
         if (appController_.discoveredPairs().empty()) {
-            QMessageBox::information(this, "Thông báo", "Chưa có tập dữ liệu nào được mở để kiểm tra toàn bộ.");
+            QMessageBox::information(
+                this,
+                "Thông báo",
+                "Chưa có tập dữ liệu nào được mở để kiểm tra toàn bộ."
+            );
             return;
         }
 
         ui->prgLoading->setVisible(true);
         ui->prgLoading->setValue(0);
-        ui->lblSystemStatus->setText("Đang thực hiện kiểm định và giải mã toàn bộ cặp ảnh...");
 
-        // This action is explicitly a fresh physical re-validation.
-        validatedResultsCache_.clear();
+        ui->lblSystemStatus->setText(
+            "Đang thực hiện kiểm định và giải mã toàn bộ cặp ảnh..."
+        );
 
-        std::size_t total = appController_.discoveredPairs().size();
-        for (std::size_t i = 0; i < total; ++i) {
-            (void)getOrValidatePair(appController_.discoveredPairs()[i]);
+        const std::size_t total =
+            appController_.validateAllPairs(
+                [this](
+                    const std::size_t completed,
+                    const std::size_t pairCount
+                ) {
+                    if (
+                        completed % 50 == 1
+                        || completed == pairCount
+                    ) {
+                        const int percent =
+                            static_cast<int>(
+                                completed * 100
+                                / pairCount
+                            );
 
-            if (i % 50 == 0 || i == total - 1) {
-                int percent = static_cast<int>((i + 1) * 100 / total);
-                ui->prgLoading->setValue(percent);
-                QCoreApplication::processEvents();
-            }
-        }
+                        ui->prgLoading->setValue(
+                            percent
+                        );
+
+                        QCoreApplication::processEvents();
+                    }
+                }
+            );
 
         ui->prgLoading->setVisible(false);
-        ui->lblSystemStatus->setText(QString("Đã hoàn thành kiểm định toàn bộ %1 cặp ảnh!").arg(total));
 
-        // Refresh view with validated tags
+        ui->lblSystemStatus->setText(
+            QString(
+                "Đã hoàn thành kiểm định toàn bộ %1 cặp ảnh!"
+            ).arg(total)
+        );
+
         applyFiltersAndModes();
     } catch (const std::exception &ex) {
         ui->prgLoading->setVisible(false);
-        QMessageBox::critical(this, "Lỗi Kiểm Định Toàn Bộ", QString("Đã xảy ra lỗi:\n%1").arg(ex.what()));
+
+        QMessageBox::critical(
+            this,
+            "Lỗi Kiểm Định Toàn Bộ",
+            QString(
+                "Đã xảy ra lỗi:\n%1"
+            ).arg(ex.what())
+        );
     }
 }
 
@@ -815,26 +958,41 @@ void MainWindow::onAddToQueueClicked()
         int idx = ui->lstImagePairs->currentItem()->data(Qt::UserRole).toInt();
         if (idx < 0 || idx >= static_cast<int>(displayedItems_.size())) return;
 
-        const auto &pair = displayedItems_[idx].pair;
+        const auto& pair = displayedItems_[idx].pair;
 
-        // Check if already in queue
-        bool exists = false;
-        for (const auto &p : manualSelectionQueue_) {
-            if (p.pairId() == pair.pairId()) {
-                exists = true;
-                break;
-            }
-        }
+        const bool added =
+            appController_.addManualSelection(
+                pair
+            );
 
-        if (!exists) {
-            manualSelectionQueue_.push_back(pair);
-            ui->lblSystemStatus->setText(QString("Đã thêm cặp '%1' vào Selection Queue (Tổng: %2 cặp).")
-                                             .arg(QString::fromStdString(pair.pairId()))
-                                             .arg(manualSelectionQueue_.size()));
+        if (added) {
+            ui->lblSystemStatus->setText(
+                QString(
+                    "Đã thêm cặp '%1' vào Selection Queue "
+                    "(Tổng: %2 cặp)."
+                )
+                    .arg(
+                        QString::fromStdString(
+                            pair.pairId()
+                        )
+                    )
+                    .arg(
+                        appController_
+                            .manualSelectionCount()
+                    )
+            );
 
             applyFiltersAndModes();
         } else {
-            ui->lblSystemStatus->setText(QString("Cặp '%1' đã có sẵn trong Queue.").arg(QString::fromStdString(pair.pairId())));
+            ui->lblSystemStatus->setText(
+                QString(
+                    "Cặp '%1' đã có sẵn trong Queue."
+                ).arg(
+                    QString::fromStdString(
+                        pair.pairId()
+                    )
+                )
+            );
         }
     } catch (const std::exception &ex) {
         ui->lblSystemStatus->setText(QString("Lỗi thêm vào Queue: %1").arg(ex.what()));
@@ -844,7 +1002,7 @@ void MainWindow::onAddToQueueClicked()
 void MainWindow::onClearQueueClicked()
 {
     try {
-        manualSelectionQueue_.clear();
+        appController_.clearManualSelectionQueue();
         ui->lblSystemStatus->setText("Đã làm trống Selection Queue.");
 
         applyFiltersAndModes();
@@ -853,18 +1011,7 @@ void MainWindow::onClearQueueClicked()
     }
 }
 
-PairValidationStatus MainWindow::safeParseStatus(const std::string &statusStr) const
-{
-    try {
-        return qart::core::domain::validation::pairValidationStatusFromString(statusStr);
-    } catch (...) {
-        // Explicitly return a non-valid error status when string is unknown
-        return PairValidationStatus::VisibleDecodeFailed;
-    }
-}
-
-QString MainWindow::getStatusTagText(PairValidationStatus status) const
-{
+QString MainWindow::getStatusTagText(PairValidationStatus status) {
     switch (status) {
         case PairValidationStatus::Valid:
             return "VALID";
@@ -895,8 +1042,7 @@ QString MainWindow::getStatusTagText(PairValidationStatus status) const
     }
 }
 
-QString MainWindow::getStatusColorHex(PairValidationStatus status) const
-{
+QString MainWindow::getStatusColorHex(PairValidationStatus status) {
     switch (status) {
         case PairValidationStatus::Valid:
             return "#2E7D32"; // Dark Green
@@ -914,8 +1060,7 @@ QString MainWindow::getStatusColorHex(PairValidationStatus status) const
     }
 }
 
-QString MainWindow::getStatusDescription(PairValidationStatus status) const
-{
+QString MainWindow::getStatusDescription(PairValidationStatus status) {
     switch (status) {
         case PairValidationStatus::Valid:
             return "Cặp ảnh hợp lệ, đúng quy chuẩn độ phân giải dataset và giải mã thành công.";
@@ -1004,8 +1149,7 @@ void MainWindow::onSampleCountChanged(int value)
     }
 }
 
-void MainWindow::onSearchTextChanged(const QString &query)
-{
+void MainWindow::onSearchTextChanged(const QString &query) const {
     try {
         const QString q = query.trimmed();
         for (int i = 0; i < ui->lstImagePairs->count(); ++i) {
@@ -1022,43 +1166,91 @@ void MainWindow::onExportCsvClicked()
 {
     try {
         if (displayedItems_.empty()) {
-            QMessageBox::information(this, "Thông báo", "Chưa có dữ liệu cặp ảnh để xuất báo cáo.");
+            QMessageBox::information(
+                this,
+                "Thông báo",
+                "Chưa có dữ liệu cặp ảnh để xuất báo cáo."
+            );
             return;
         }
 
-        const QString defaultPath = QString::fromStdString((appController_.datasetRoot() / "validation_manifest_report.csv").string());
-        const QString saveFile = QFileDialog::getSaveFileName(
-            this,
-            "Xuất báo cáo Manifest CSV",
-            defaultPath,
-            "CSV Files (*.csv)"
-        );
+        const QString defaultPath =
+            QString::fromStdString(
+                appController_
+                    .defaultValidationReportPath()
+                    .string()
+            );
+
+        const QString saveFile =
+            QFileDialog::getSaveFileName(
+                this,
+                "Xuất báo cáo Manifest CSV",
+                defaultPath,
+                "CSV Files (*.csv)"
+            );
 
         if (saveFile.isEmpty()) {
             return;
         }
 
-        // Ensure all displayed items are validated before export
-        std::vector<ValidationManifestRow> exportRows;
-        exportRows.reserve(displayedItems_.size());
+        std::vector<
+            qart::application::ValidationExportItem
+        > exportItems;
 
-        for (const auto &item : displayedItems_) {
-            PairValidationResult res = item.validationResult.has_value()
-                                           ? *item.validationResult
-                                           : getOrValidatePair(item.pair);
-            exportRows.push_back(ValidationManifestRow::fromResult(res));
+        exportItems.reserve(
+            displayedItems_.size()
+        );
+
+        for (const auto& item : displayedItems_) {
+            exportItems.push_back(
+                qart::application::ValidationExportItem{
+                    item.pair,
+                    item.validationResult
+                }
+            );
         }
 
-        ValidationManifest manifest("2.0", exportRows);
-        CsvValidationManifestWriter writer;
+        const auto result =
+            appController_.exportValidationReport(
+                exportItems,
+                std::filesystem::path(
+                    saveFile.toStdString()
+                )
+            );
 
-        const auto writtenPath = writer.write(manifest, saveFile.toStdString(), true);
-        (void)writtenPath;
-        QMessageBox::information(this, "Thành công", QString("Đã xuất báo cáo CSV thành công (%1 dòng) tại:\n%2")
-                                                         .arg(exportRows.size())
-                                                         .arg(saveFile));
-        ui->lblSystemStatus->setText(QString("Đã xuất báo cáo CSV (%1 cặp): %2").arg(exportRows.size()).arg(saveFile));
+        QMessageBox::information(
+            this,
+            "Thành công",
+            QString(
+                "Đã xuất báo cáo CSV thành công "
+                "(%1 dòng) tại:\n%2"
+            )
+                .arg(result.rowCount)
+                .arg(
+                    QString::fromStdString(
+                        result.writtenPath.string()
+                    )
+                )
+        );
+
+        ui->lblSystemStatus->setText(
+            QString(
+                "Đã xuất báo cáo CSV (%1 cặp): %2"
+            )
+                .arg(result.rowCount)
+                .arg(
+                    QString::fromStdString(
+                        result.writtenPath.string()
+                    )
+                )
+        );
     } catch (const std::exception &ex) {
-        QMessageBox::critical(this, "Lỗi xuất CSV", QString("Không thể xuất file CSV: %1").arg(ex.what()));
+        QMessageBox::critical(
+            this,
+            "Lỗi xuất CSV",
+            QString(
+                "Không thể xuất file CSV: %1"
+            ).arg(ex.what())
+        );
     }
 }

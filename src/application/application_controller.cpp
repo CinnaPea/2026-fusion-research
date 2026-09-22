@@ -7,6 +7,13 @@
 #include "core/domain/imaging/image_dimensions.h"
 #include "core/manifests/csv_validation_manifest_reader.h"
 #include "core/manifests/validation_manifest.h"
+#include "core/imaging/opencv_image_decoder.h"
+#include "core/validation/pair_validator.h"
+#include "core/visualization/preview_pair_selector.h"
+#include "core/visualization/preview_selection.h"
+#include "core/datasets/canonical_pair_lookup.h"
+#include "core/manifests/csv_validation_manifest_writer.h"
+#include "core/manifests/validation_manifest_row.h"
 
 #include <algorithm>
 #include <cctype>
@@ -23,6 +30,15 @@ using core::domain::datasets::DatasetPair;
 using core::domain::datasets::DatasetPartitionId;
 using core::domain::validation::PairValidationPolicy;
 using core::domain::validation::PairValidationResult;
+using core::imaging::OpenCvImageDecoder;
+using core::validation::PairValidator;
+using core::visualization::PreviewPairSelector;
+using core::visualization::PreviewSelection;
+using core::visualization::PreviewSelectionRequest;
+using core::manifests::CsvValidationManifestWriter;
+using core::manifests::ValidationManifest;
+using core::manifests::ValidationManifestRow;
+
 
 std::vector<DatasetPair> discoverWithAdapter(
     const core::datasets::DatasetAdapter& adapter,
@@ -154,11 +170,8 @@ void ApplicationController::clearDatasetSession() noexcept
     datasetConfiguration_.reset();
     manifestResults_.clear();
     canonicalManifestError_.clear();
-}
-
-bool ApplicationController::hasDatasetSession() const noexcept
-{
-    return !currentDatasetId_.empty() && !discoveredPairs_.empty();
+    validatedResultsCache_.clear();
+    manualSelectionQueue_.clear();
 }
 
 const std::filesystem::path&
@@ -181,8 +194,7 @@ ApplicationController::discoveredPairs() const noexcept
 
 std::filesystem::path ApplicationController::resolveDatasetRoot(
     const std::filesystem::path& inputPath
-) const
-{
+) {
     if (!std::filesystem::exists(inputPath)) {
         return inputPath;
     }
@@ -257,8 +269,7 @@ std::filesystem::path ApplicationController::resolveDatasetRoot(
 
 PairValidationPolicy ApplicationController::validationPolicyForDataset(
     const std::string& datasetId
-) const
-{
+) {
     const std::vector<std::string> supportedExtensions = {
         ".jpg",
         ".jpeg",
@@ -267,29 +278,29 @@ PairValidationPolicy ApplicationController::validationPolicyForDataset(
     };
 
     if (datasetId == "llvip") {
-        return PairValidationPolicy(
+        return {
             supportedExtensions,
             supportedExtensions,
             core::domain::imaging::ImageDimensions(1280, 1024),
             core::domain::imaging::ImageDimensions(1280, 1024)
-        );
+        };
     }
 
     if (datasetId == "msrs") {
-        return PairValidationPolicy(
+        return {
             supportedExtensions,
             supportedExtensions,
             core::domain::imaging::ImageDimensions(640, 480),
             core::domain::imaging::ImageDimensions(640, 480)
-        );
+        };
     }
 
-    return PairValidationPolicy(
+    return {
         supportedExtensions,
         supportedExtensions,
         std::nullopt,
         std::nullopt
-    );
+    };
 }
 
 std::vector<PairValidationResult>
@@ -406,4 +417,335 @@ void ApplicationController::loadCanonicalValidationManifest()
     }
 }
 
+    PairValidationResult ApplicationController::getOrValidatePair(
+        const DatasetPair& pair
+    )
+    {
+        const auto cached =
+            validatedResultsCache_.find(pair.pairId());
+
+        if (cached != validatedResultsCache_.end()) {
+            return cached->second;
+        }
+
+        OpenCvImageDecoder decoder;
+
+        const PairValidationPolicy policy =
+            validationPolicyForDataset(
+                pair.datasetId()
+            );
+
+        PairValidator validator(
+            decoder,
+            policy
+        );
+
+        PairValidationResult result =
+            validator.validatePair(
+                datasetRoot_,
+                pair
+            );
+
+        validatedResultsCache_.emplace(
+            pair.pairId(),
+            result
+        );
+
+        return result;
+    }
+
+    PreviewSelection
+    ApplicationController::selectAutomaticPreview(
+        const std::vector<DatasetPair>& filteredPairs,
+        const int countPerPartition
+    ) const
+    {
+        const std::vector<PairValidationResult> candidateResults =
+            previewCandidates(filteredPairs);
+
+        const PreviewSelectionRequest request(
+            countPerPartition,
+            {}
+        );
+
+        PreviewPairSelector selector;
+
+        return selector.select(
+            candidateResults,
+            request
+        );
+    }
+
+    PreviewSelection
+    ApplicationController::selectQueuedPreview(
+        const std::vector<DatasetPair>& filteredPairs,
+        const int countPerPartition,
+        const std::string& selectedPartition
+    ) const
+    {
+        const std::vector<PairValidationResult> candidateResults =
+            previewCandidates(filteredPairs);
+
+        std::vector<std::string> explicitPairIds;
+
+        for (const auto& manualPair : manualSelectionQueue_) {
+            if (
+                selectedPartition.empty()
+                || manualPair.partitionId().value()
+                    == selectedPartition
+            ) {
+                explicitPairIds.push_back(
+                    manualPair.pairId()
+                );
+            }
+        }
+
+        const PreviewSelectionRequest request(
+            countPerPartition,
+            explicitPairIds
+        );
+
+        PreviewPairSelector selector;
+
+        return selector.select(
+            candidateResults,
+            request
+        );
+    }
+
+    bool ApplicationController::addManualSelection(
+        const DatasetPair& pair
+    )
+    {
+        for (const auto& existing : manualSelectionQueue_) {
+            if (existing.pairId() == pair.pairId()) {
+                return false;
+            }
+        }
+
+        manualSelectionQueue_.push_back(pair);
+        return true;
+    }
+
+        void ApplicationController::clearManualSelectionQueue() noexcept
+    {
+        manualSelectionQueue_.clear();
+    }
+
+        bool ApplicationController::isManuallyQueued(
+            const std::string& pairId
+        ) const noexcept
+    {
+        for (const auto& pair : manualSelectionQueue_) {
+            if (pair.pairId() == pairId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+        std::size_t
+        ApplicationController::manualSelectionCount() const noexcept
+    {
+        return manualSelectionQueue_.size();
+    }
+
+    SingleImageLookupResult
+    ApplicationController::lookupCanonicalImage(
+        const std::filesystem::path& imagePath
+    )
+    {
+        const std::filesystem::path resolvedRoot =
+            resolveDatasetRoot(imagePath);
+
+        std::error_code relativeError;
+
+        const std::filesystem::path relativeToRoot =
+            std::filesystem::relative(
+                imagePath,
+                resolvedRoot,
+                relativeError
+            );
+
+        std::vector<std::string> pathComponents;
+
+        if (!relativeError) {
+            for (const auto& component : relativeToRoot) {
+                std::string value = component.string();
+
+                std::transform(
+                    value.begin(),
+                    value.end(),
+                    value.begin(),
+                    [](const unsigned char character) {
+                        return static_cast<char>(
+                            std::tolower(character)
+                        );
+                    }
+                );
+
+                pathComponents.push_back(
+                    std::move(value)
+                );
+            }
+        }
+
+        std::string detectedDataset;
+
+        if (
+            pathComponents.size() >= 3
+            && pathComponents[0] == "raw"
+        ) {
+            const std::string& candidate =
+                pathComponents[1];
+
+            if (
+                candidate == "llvip"
+                || candidate == "msrs"
+                || candidate == "roadscene"
+            ) {
+                detectedDataset = candidate;
+            }
+        }
+
+        if (detectedDataset.empty()) {
+            return SingleImageLookupResult{
+                SingleImageLookupStatus::UnsupportedDataset,
+                resolvedRoot,
+                {},
+                std::nullopt,
+                false
+            };
+        }
+
+        const bool datasetSessionChanged =
+            datasetRoot_ != resolvedRoot
+            || currentDatasetId_ != detectedDataset
+            || discoveredPairs_.empty();
+
+        if (datasetSessionChanged) {
+            const bool loaded =
+                loadDataset(
+                    resolvedRoot,
+                    detectedDataset
+                );
+
+            if (!loaded) {
+                return SingleImageLookupResult{
+                    SingleImageLookupStatus::DatasetLoadFailed,
+                    resolvedRoot,
+                    detectedDataset,
+                    std::nullopt,
+                    true
+                };
+            }
+        }
+
+        const auto pair =
+            core::datasets::CanonicalPairLookup::
+                findByImagePath(
+                    resolvedRoot,
+                    imagePath,
+                    discoveredPairs_
+                );
+
+        if (!pair.has_value()) {
+            return SingleImageLookupResult{
+                SingleImageLookupStatus::NonCanonicalInput,
+                resolvedRoot,
+                detectedDataset,
+                std::nullopt,
+                datasetSessionChanged
+            };
+        }
+
+        return SingleImageLookupResult{
+            SingleImageLookupStatus::Resolved,
+            resolvedRoot,
+            detectedDataset,
+            pair,
+            datasetSessionChanged
+        };
+    }
+
+    std::size_t ApplicationController::validateAllPairs(
+        const std::function<
+            void(std::size_t completed, std::size_t total)
+        >& progressCallback
+    )
+    {
+        validatedResultsCache_.clear();
+
+        const std::size_t total =
+            discoveredPairs_.size();
+
+        for (
+            std::size_t index = 0;
+            index < total;
+            ++index
+        ) {
+            (void)getOrValidatePair(
+                discoveredPairs_[index]
+            );
+
+            if (progressCallback) {
+                progressCallback(
+                    index + 1,
+                    total
+                );
+            }
+        }
+
+        return total;
+    }
+
+    std::filesystem::path ApplicationController::defaultValidationReportPath() const
+    {
+        return datasetRoot_
+            / "validation_manifest_report.csv";
+    }
+
+    ValidationExportResult ApplicationController::exportValidationReport(
+        const std::vector<ValidationExportItem>& items,
+        const std::filesystem::path& outputPath
+    )
+    {
+        std::vector<ValidationManifestRow> rows;
+        rows.reserve(items.size());
+
+        for (const auto& item : items) {
+            const PairValidationResult result =
+                item.validationResult.has_value()
+                    ? *item.validationResult
+                    : getOrValidatePair(
+                          item.pair
+                      );
+
+            rows.push_back(
+                ValidationManifestRow::fromResult(
+                    result
+                )
+            );
+        }
+
+        const ValidationManifest manifest(
+            "2.0",
+            rows
+        );
+
+        CsvValidationManifestWriter writer;
+
+        const std::filesystem::path writtenPath =
+            writer.write(
+                manifest,
+                outputPath.string(),
+                true
+            );
+
+        return ValidationExportResult{
+            writtenPath,
+            rows.size()
+        };
+    }
 } // namespace qart::application

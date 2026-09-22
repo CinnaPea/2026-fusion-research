@@ -6,18 +6,13 @@
 #include <QLabel>
 #include <QString>
 #include <filesystem>
-#include <map>
 #include <optional>
-#include <string>
 #include <vector>
 
 #include "core/domain/datasets/dataset_pair.h"
-#include "core/domain/validation/pair_validation_policy.h"
 #include "core/domain/validation/pair_validation_result.h"
 #include "core/domain/validation/pair_validation_status.h"
-#include "core/configuration/dataset_configuration.h"
 #include "core/manifests/validation_manifest_row.h"
-#include "core/visualization/preview_pair_selector.h"
 #include "application/application_controller.h"
 
 QT_BEGIN_NAMESPACE
@@ -47,7 +42,7 @@ private slots:
     void onBrowseDatasetClicked();
     void onSelectSingleImageClicked();
     void onPairSelected(QListWidgetItem *item);
-    void onSearchTextChanged(const QString &query);
+    void onSearchTextChanged(const QString &query) const;
     void onExportCsvClicked();
     void onDatasetChanged(int index);
     void onPartitionChanged(int index);
@@ -61,40 +56,22 @@ private:
     void setupUiControls();
     void loadDatasetFromDirectory(const QString &dirPath);
     void applyFiltersAndModes();
-    void displayPair(const PairItemEntry &entry);
-    void renderImageToLabel(QLabel *label, const QString &imagePath);
-
-
-    [[nodiscard]]
-    qart::core::domain::validation::PairValidationResult
-    getOrValidatePair(const qart::core::domain::datasets::DatasetPair &pair);
+    void displayPair(const PairItemEntry &entry) const;
+    static void renderImageToLabel(QLabel *label, const QString &imagePath);
 
     [[nodiscard]]
-    qart::core::domain::validation::PairValidationStatus
-    safeParseStatus(const std::string &statusStr) const;
+    static QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status);
 
     [[nodiscard]]
-    QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status) const;
+    static QString getStatusColorHex(qart::core::domain::validation::PairValidationStatus status);
 
     [[nodiscard]]
-    QString getStatusColorHex(qart::core::domain::validation::PairValidationStatus status) const;
-
-    [[nodiscard]]
-    QString getStatusDescription(qart::core::domain::validation::PairValidationStatus status) const;
+    static QString getStatusDescription(qart::core::domain::validation::PairValidationStatus status);
 
     Ui::MainWindow *ui;
 
-    // On-demand validation cache by pairId
-    std::map<std::string, qart::core::domain::validation::PairValidationResult> validatedResultsCache_;
-
     // Currently filtered and displayed item entries
     std::vector<PairItemEntry> displayedItems_;
-
-    // Manual Selection Queue (Mode C)
-    std::vector<qart::core::domain::datasets::DatasetPair> manualSelectionQueue_;
-
-    // Export rows
-    std::vector<qart::core::manifests::ValidationManifestRow> manifestRows_;
 
     bool isUpdatingControls_ = false;
 
