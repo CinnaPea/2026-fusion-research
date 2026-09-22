@@ -1,19 +1,13 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-#include "core/datasets/llvip_adapter.h"
-#include "core/datasets/msrs_adapter.h"
-#include "core/datasets/roadscene_adapter.h"
 #include "core/datasets/canonical_pair_lookup.h"
-#include "core/configuration/dataset_configuration.h"
-#include "core/domain/datasets/dataset_exceptions.h"
 #include "core/domain/datasets/dataset_pair.h"
 #include "core/domain/validation/pair_validation_policy.h"
 #include "core/domain/validation/pair_validation_result.h"
 #include "core/domain/validation/pair_validation_status.h"
 #include "core/imaging/opencv_image_decoder.h"
 #include "core/manifests/csv_validation_manifest_writer.h"
-#include "core/manifests/csv_validation_manifest_reader.h"
 #include "core/manifests/validation_manifest.h"
 #include "core/manifests/validation_manifest_row.h"
 #include "core/validation/pair_validator.h"
@@ -35,19 +29,14 @@
 #include <random>
 #include <set>
 #include <stdexcept>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 using qart::core::domain::datasets::DatasetPair;
-using qart::core::domain::datasets::DatasetPartitionId;
-using qart::core::configuration::DatasetConfiguration;
 using qart::core::domain::validation::PairValidationPolicy;
 using qart::core::domain::validation::PairValidationResult;
 using qart::core::domain::validation::PairValidationStatus;
 using qart::core::imaging::OpenCvImageDecoder;
 using qart::core::manifests::CsvValidationManifestWriter;
-using qart::core::manifests::CsvValidationManifestReader;
 using qart::core::manifests::ValidationManifest;
 using qart::core::manifests::ValidationManifestRow;
 using qart::core::validation::PairValidator;
@@ -143,95 +132,6 @@ void MainWindow::resizeEvent(QResizeEvent *event)
     }
 }
 
-std::filesystem::path MainWindow::resolveDatasetRoot(const std::filesystem::path &inputPath) const
-{
-    if (!std::filesystem::exists(inputPath)) {
-        return inputPath;
-    }
-
-    std::filesystem::path current = inputPath;
-    // If input is a file, start from its parent directory
-    if (std::filesystem::is_regular_file(current)) {
-        current = current.parent_path();
-    }
-
-    std::error_code ec;
-    current = std::filesystem::canonical(current, ec);
-    if (ec) {
-        current = inputPath;
-        if (std::filesystem::is_regular_file(current)) {
-            current = current.parent_path();
-        }
-    }
-
-    // Check if current directly contains "raw" (e.g. QART_Datasets)
-    if (std::filesystem::exists(current / "raw") && std::filesystem::is_directory(current / "raw")) {
-        return current;
-    }
-
-    // Check if current is "raw"
-    if (current.filename() == "raw" && current.has_parent_path()) {
-        return current.parent_path();
-    }
-
-    // Check if current is dataset folder name
-    std::string folderName = current.filename().string();
-    std::transform(folderName.begin(), folderName.end(), folderName.begin(), ::tolower);
-
-    if (folderName == "llvip" || folderName == "msrs" || folderName == "roadscene") {
-        if (current.has_parent_path()) {
-            std::filesystem::path parent = current.parent_path();
-            if (parent.filename() == "raw" && parent.has_parent_path()) {
-                return parent.parent_path();
-            }
-            return parent;
-        }
-    }
-
-    // Traverse up to 5 ancestor levels looking for directory containing "raw"
-    std::filesystem::path search = current;
-    for (int i = 0; i < 5; ++i) {
-        if (std::filesystem::exists(search / "raw") && std::filesystem::is_directory(search / "raw")) {
-            return search;
-        }
-        if (!search.has_parent_path() || search == search.parent_path()) {
-            break;
-        }
-        search = search.parent_path();
-    }
-
-    return current;
-}
-
-PairValidationPolicy MainWindow::getDatasetValidationPolicy(const std::string &datasetId) const
-{
-    std::vector<std::string> supportedExtensions = {".jpg", ".jpeg", ".png", ".bmp"};
-
-    if (datasetId == "llvip") {
-        return PairValidationPolicy(
-            supportedExtensions,
-            supportedExtensions,
-            qart::core::domain::imaging::ImageDimensions(1280, 1024),
-            qart::core::domain::imaging::ImageDimensions(1280, 1024)
-        );
-    }
-    if (datasetId == "msrs") {
-        return PairValidationPolicy(
-            supportedExtensions,
-            supportedExtensions,
-            qart::core::domain::imaging::ImageDimensions(640, 480),
-            qart::core::domain::imaging::ImageDimensions(640, 480)
-        );
-    }
-    // RoadScene and other generic datasets: Pairwise matching only
-    return PairValidationPolicy(
-        supportedExtensions,
-        supportedExtensions,
-        std::nullopt,
-        std::nullopt
-    );
-}
-
 PairValidationResult MainWindow::getOrValidatePair(const DatasetPair &pair)
 {
     auto it = validatedResultsCache_.find(pair.pairId());
@@ -240,111 +140,20 @@ PairValidationResult MainWindow::getOrValidatePair(const DatasetPair &pair)
     }
 
     OpenCvImageDecoder decoder;
-    PairValidationPolicy policy = getDatasetValidationPolicy(pair.datasetId());
+    PairValidationPolicy policy =
+        appController_.validationPolicyForDataset(
+            pair.datasetId()
+        );
+
     PairValidator validator(decoder, policy);
 
-    PairValidationResult result = validator.validatePair(datasetRoot_, pair);
+    PairValidationResult result =
+        validator.validatePair(
+            appController_.datasetRoot(),
+            pair
+        );
     validatedResultsCache_.emplace(pair.pairId(), result);
     return result;
-}
-
-void MainWindow::loadCanonicalValidationManifest()
-{
-    manifestResults_.clear();
-    canonicalManifestError_.clear();
-
-    if (!datasetConfiguration_.has_value()) {
-        canonicalManifestError_ =
-            "Canonical dataset configuration is unavailable.";
-        return;
-    }
-
-    const std::filesystem::path manifestPath =
-        datasetConfiguration_->resolveManifestPath();
-    if (!std::filesystem::is_regular_file(manifestPath)) {
-        canonicalManifestError_ =
-            "Canonical manifest does not exist at configured path: "
-            + manifestPath.string();
-        return;
-    }
-
-    try {
-        CsvValidationManifestReader reader;
-        const ValidationManifest manifest = reader.read(manifestPath);
-        const auto results = manifest.toResults();
-
-        std::unordered_map<std::string, const DatasetPair*> discoveredById;
-        discoveredById.reserve(allDiscoveredPairs_.size());
-        for (const auto &pair : allDiscoveredPairs_) {
-            discoveredById.emplace(pair.pairId(), &pair);
-        }
-
-        std::unordered_set<std::string> manifestIds;
-        manifestIds.reserve(results.size());
-        for (const auto &result : results) {
-            if (result.pair().datasetId() != datasetConfiguration_->datasetId()) {
-                throw std::runtime_error(
-                    "Canonical manifest contains a pair from another dataset: "
-                    + result.pair().pairId()
-                );
-            }
-
-            const auto discovered = discoveredById.find(result.pair().pairId());
-            if (discovered == discoveredById.end() || *discovered->second != result.pair()) {
-                throw std::runtime_error(
-                    "Canonical manifest pair metadata is stale or non-canonical: "
-                    + result.pair().pairId()
-                );
-            }
-            manifestIds.insert(result.pair().pairId());
-        }
-
-        if (manifestIds.size() != discoveredById.size()) {
-            throw std::runtime_error(
-                "Canonical manifest is incomplete or stale for the current dataset "
-                "(manifest pairs=" + std::to_string(manifestIds.size())
-                + ", discovered pairs=" + std::to_string(discoveredById.size()) + ")."
-            );
-        }
-
-        for (auto result : results) {
-            manifestResults_.emplace(result.pair().pairId(), std::move(result));
-        }
-    } catch (const std::exception &ex) {
-        manifestResults_.clear();
-        canonicalManifestError_ =
-            "Cannot load complete canonical manifest '"
-            + manifestPath.string() + "': " + ex.what();
-    }
-}
-
-std::vector<PairValidationResult>
-MainWindow::previewCandidates(const std::vector<DatasetPair> &pairs) const
-{
-    if (!canonicalManifestError_.empty()) {
-        throw std::runtime_error(canonicalManifestError_);
-    }
-
-    if (!datasetConfiguration_.has_value() || manifestResults_.empty()) {
-        throw std::runtime_error(
-            "Mode B/C requires a complete canonical Schema 2.0 manifest."
-        );
-    }
-
-    std::vector<PairValidationResult> results;
-    results.reserve(pairs.size());
-
-    for (const auto &pair : pairs) {
-        const auto manifested = manifestResults_.find(pair.pairId());
-        if (manifested == manifestResults_.end()) {
-            throw std::runtime_error(
-                "Canonical manifest is missing filtered pair ID: " + pair.pairId()
-            );
-        }
-        results.push_back(manifested->second);
-    }
-
-    return results;
 }
 
 void MainWindow::onBrowseDatasetClicked()
@@ -369,73 +178,29 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
     try {
         ui->txtDatasetDir->setText(dirPath);
         ui->lstImagePairs->clear();
+
         displayedItems_.clear();
         manifestRows_.clear();
-        allDiscoveredPairs_.clear();
         validatedResultsCache_.clear();
-        manifestResults_.clear();
-        datasetConfiguration_.reset();
-        canonicalManifestError_.clear();
         manualSelectionQueue_.clear();
 
-        datasetRoot_ = resolveDatasetRoot(dirPath.toStdString());
-
-        ui->lblSystemStatus->setText("Đang quét cấu trúc tập dữ liệu...");
+        ui->lblSystemStatus->setText(
+            "Đang quét cấu trúc tập dữ liệu..."
+        );
         QCoreApplication::processEvents();
 
-        std::vector<DatasetPair> discoveredPairs;
-        std::string detectedDatasetId = "";
+        const QString requestedDataset =
+            ui->cbDatasetSelect->currentData().toString();
 
-        QString selectedDataset = ui->cbDatasetSelect->currentData().toString();
+        const bool loaded = appController_.loadDataset(
+            std::filesystem::path(dirPath.toStdString()),
+            requestedDataset.toStdString()
+        );
 
-        // 1. Try LLVIP Adapter
-        if (selectedDataset.isEmpty() || selectedDataset == "llvip") {
-            qart::core::datasets::LLVIPAdapter llvipAdapter;
-            try {
-                llvipAdapter.validateLayout(datasetRoot_);
-                detectedDatasetId = llvipAdapter.datasetId();
-                for (const auto &partition : llvipAdapter.supportedPartitions()) {
-                    auto pairs = llvipAdapter.discoverPairs(datasetRoot_, partition);
-                    discoveredPairs.insert(discoveredPairs.end(), pairs.begin(), pairs.end());
-                }
-            } catch (...) {
-                // Layout validation failed for LLVIP
-            }
-        }
-
-        // 2. Try MSRS Adapter
-        if (discoveredPairs.empty() && (selectedDataset.isEmpty() || selectedDataset == "msrs")) {
-            qart::core::datasets::MSRSAdapter msrsAdapter;
-            try {
-                msrsAdapter.validateLayout(datasetRoot_);
-                detectedDatasetId = msrsAdapter.datasetId();
-                for (const auto &partition : msrsAdapter.supportedPartitions()) {
-                    auto pairs = msrsAdapter.discoverPairs(datasetRoot_, partition);
-                    discoveredPairs.insert(discoveredPairs.end(), pairs.begin(), pairs.end());
-                }
-            } catch (...) {
-                // Layout validation failed for MSRS
-            }
-        }
-
-        // 3. Try RoadScene Adapter
-        if (discoveredPairs.empty() && (selectedDataset.isEmpty() || selectedDataset == "roadscene")) {
-            qart::core::datasets::RoadSceneAdapter roadSceneAdapter;
-            try {
-                roadSceneAdapter.validateLayout(datasetRoot_);
-                detectedDatasetId = roadSceneAdapter.datasetId();
-                for (const auto &partition : roadSceneAdapter.supportedPartitions()) {
-                    auto pairs = roadSceneAdapter.discoverPairs(datasetRoot_, partition);
-                    discoveredPairs.insert(discoveredPairs.end(), pairs.begin(), pairs.end());
-                }
-            } catch (...) {
-                // Layout validation failed for RoadScene
-            }
-        }
-
-        // If no valid dataset adapter matched
-        if (discoveredPairs.empty()) {
-            ui->lblSystemStatus->setText("Không thể nhận diện tập dữ liệu hợp lệ.");
+        if (!loaded) {
+            ui->lblSystemStatus->setText(
+                "Không thể nhận diện tập dữ liệu hợp lệ."
+            );
             ui->lblPairCount->setText("Tổng số: 0 cặp ảnh");
             ui->lblCurrentPairId->setText("Cặp ảnh: Chưa chọn");
             ui->lblPairStatus->setText("Trạng thái: --");
@@ -444,72 +209,81 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
             QMessageBox::warning(
                 this,
                 "Không nhận diện được Dataset",
-                QString("Không thể nhận diện tập dữ liệu chuẩn (LLVIP, MSRS, RoadScene) tại đường dẫn:\n%1\n\nVui lòng kiểm tra lại cấu trúc thư mục chứa các tập dữ liệu chuẩn!")
-                    .arg(dirPath)
+                QString(
+                    "Không thể nhận diện tập dữ liệu chuẩn "
+                    "(LLVIP, MSRS, RoadScene) tại đường dẫn:\n%1\n\n"
+                    "Vui lòng kiểm tra lại cấu trúc thư mục chứa "
+                    "các tập dữ liệu chuẩn!"
+                ).arg(dirPath)
             );
             return;
         }
 
-        currentDatasetId_ = QString::fromStdString(detectedDatasetId);
-        allDiscoveredPairs_ = std::move(discoveredPairs);
+        const QString currentDatasetId =
+            QString::fromStdString(
+                appController_.currentDatasetId()
+            );
 
-        std::string manifestRelativePath;
-        std::vector<DatasetPartitionId> configuredPartitions;
-        if (detectedDatasetId == "llvip") {
-            manifestRelativePath = "manifests/llvip/llvip_validation_schema_2_0.csv";
-            configuredPartitions = {DatasetPartitionId("train"), DatasetPartitionId("test")};
-        } else if (detectedDatasetId == "msrs") {
-            manifestRelativePath = "manifests/msrs/msrs_validation_schema_2_0.csv";
-            configuredPartitions = {DatasetPartitionId("train"), DatasetPartitionId("test")};
-        } else if (detectedDatasetId == "roadscene") {
-            manifestRelativePath = "manifests/roadscene/roadscene_validation_schema_2_0.csv";
-            configuredPartitions = {DatasetPartitionId("all")};
-        }
-
-        datasetConfiguration_.emplace(
-            "2.0",
-            detectedDatasetId,
-            datasetRoot_,
-            manifestRelativePath,
-            configuredPartitions,
-            getDatasetValidationPolicy(detectedDatasetId)
-        );
-        loadCanonicalValidationManifest();
-
-        // Update controls reflectively
         isUpdatingControls_ = true;
-        if (selectedDataset.isEmpty()) {
-            int idx = ui->cbDatasetSelect->findData(currentDatasetId_);
-            if (idx >= 0) {
-                ui->cbDatasetSelect->setCurrentIndex(idx);
+
+        if (requestedDataset.isEmpty()) {
+            const int index =
+                ui->cbDatasetSelect->findData(currentDatasetId);
+
+            if (index >= 0) {
+                ui->cbDatasetSelect->setCurrentIndex(index);
             }
         }
 
-        // Update cbPartitionSelect items based on dataset semantics
-        QString curPartition = ui->cbPartitionSelect->currentData().toString();
+        const QString previousPartition =
+            ui->cbPartitionSelect->currentData().toString();
+
         ui->cbPartitionSelect->clear();
 
-        if (currentDatasetId_ == "llvip" || currentDatasetId_ == "msrs") {
-            ui->cbPartitionSelect->addItem("Tất cả Partition", "");
-            ui->cbPartitionSelect->addItem("train", "train");
-            ui->cbPartitionSelect->addItem("test", "test");
-        } else if (currentDatasetId_ == "roadscene") {
-            ui->cbPartitionSelect->addItem("all (native partition)", "all");
-        } else {
-            ui->cbPartitionSelect->addItem("Tất cả Partition", "");
+        if (
+            currentDatasetId == "llvip"
+            || currentDatasetId == "msrs"
+        ) {
+            ui->cbPartitionSelect->addItem(
+                "Tất cả Partition", ""
+            );
+            ui->cbPartitionSelect->addItem(
+                "train", "train"
+            );
+            ui->cbPartitionSelect->addItem(
+                "test", "test"
+            );
+        } else if (currentDatasetId == "roadscene") {
+            ui->cbPartitionSelect->addItem(
+                "all (native partition)", "all"
+            );
         }
 
-        int partIdx = ui->cbPartitionSelect->findData(curPartition);
-        if (partIdx >= 0) {
-            ui->cbPartitionSelect->setCurrentIndex(partIdx);
+        const int partitionIndex =
+            ui->cbPartitionSelect->findData(
+                previousPartition
+            );
+
+        if (partitionIndex >= 0) {
+            ui->cbPartitionSelect->setCurrentIndex(
+                partitionIndex
+            );
         } else {
             ui->cbPartitionSelect->setCurrentIndex(0);
         }
+
         isUpdatingControls_ = false;
 
         applyFiltersAndModes();
+
     } catch (const std::exception &ex) {
-        QMessageBox::critical(this, "Lỗi Nạp Dataset", QString("Đã xảy ra lỗi khi nạp dữ liệu:\n%1").arg(ex.what()));
+        QMessageBox::critical(
+            this,
+            "Lỗi Nạp Dataset",
+            QString(
+                "Đã xảy ra lỗi khi nạp dữ liệu:\n%1"
+            ).arg(ex.what())
+        );
     }
 }
 
@@ -520,7 +294,7 @@ void MainWindow::applyFiltersAndModes()
         displayedItems_.clear();
         manifestRows_.clear();
 
-        if (allDiscoveredPairs_.empty()) {
+        if (appController_.discoveredPairs().empty()) {
             ui->lblPairCount->setText("Tổng số: 0 cặp ảnh");
             ui->lblSystemStatus->setText("Chưa có dữ liệu cặp ảnh.");
             return;
@@ -537,9 +311,9 @@ void MainWindow::applyFiltersAndModes()
         std::vector<DatasetPair> filteredPairs;
 
         if (selectedPartition.isEmpty()) {
-            filteredPairs = allDiscoveredPairs_;
+            filteredPairs = appController_.discoveredPairs();
         } else {
-            for (const auto &pair : allDiscoveredPairs_) {
+            for (const auto &pair : appController_.discoveredPairs()) {
                 if (pair.partitionId().value() == selectedPartition.toStdString()) {
                     filteredPairs.push_back(pair);
                 }
@@ -561,7 +335,7 @@ void MainWindow::applyFiltersAndModes()
             int countPerPartition = std::max(2, ui->spnSampleCount->value());
 
             const std::vector<PairValidationResult> candidateResults =
-                previewCandidates(filteredPairs);
+                appController_.previewCandidates(filteredPairs);
 
             PreviewSelectionRequest request(countPerPartition, {});
             PreviewPairSelector selector;
@@ -576,7 +350,7 @@ void MainWindow::applyFiltersAndModes()
             int countPerPartition = std::max(2, ui->spnSampleCount->value());
 
             const std::vector<PairValidationResult> candidateResults =
-                previewCandidates(filteredPairs);
+                appController_.previewCandidates(filteredPairs);
 
             std::vector<std::string> explicitPairIds;
             for (const auto &manualPair : manualSelectionQueue_) {
@@ -652,7 +426,10 @@ void MainWindow::applyFiltersAndModes()
 
         ui->lblSystemStatus->setText(QString("Đã tải %1 cặp ảnh (%2 - %3). Chọn một cặp để xem.")
                                          .arg(displayedItems_.size())
-                                         .arg(currentDatasetId_.toUpper())
+                                         .arg(
+                                            QString::fromStdString(
+                                                appController_.currentDatasetId()
+                                            ).toUpper())
                                          .arg(modeName));
 
         // Select first item if available
@@ -764,8 +541,8 @@ void MainWindow::displayPair(const PairItemEntry &entry)
         }
 
         // Resolve Full Paths
-        std::filesystem::path visFullPath = datasetRoot_ / pair.visibleRelativePath();
-        std::filesystem::path thrFullPath = datasetRoot_ / pair.thermalRelativePath();
+        std::filesystem::path visFullPath = appController_.datasetRoot() / pair.visibleRelativePath();
+        std::filesystem::path thrFullPath = appController_.datasetRoot() / pair.thermalRelativePath();
 
         // Render Visible Image (A1)
         renderImageToLabel(ui->lblVisibleImage, QString::fromStdString(visFullPath.string()));
@@ -852,7 +629,7 @@ void MainWindow::onSelectSingleImageClicked()
             return;
         }
 
-        std::filesystem::path resolvedRoot = resolveDatasetRoot(filePath);
+        std::filesystem::path resolvedRoot = appController_.resolveDatasetRoot(filePath);
         if (!std::filesystem::exists(resolvedRoot / "raw")) {
             QMessageBox::warning(this, "Không tìm thấy Dataset", "Tập tin ảnh không nằm trong cấu trúc thư mục bộ dữ liệu chuẩn (QART_Datasets/raw/...).");
             return;
@@ -887,12 +664,11 @@ void MainWindow::onSelectSingleImageClicked()
         }
 
         // 2. Switch dataset if datasetRoot or datasetId is different
-        bool datasetChanged = (datasetRoot_ != resolvedRoot) ||
-                              (currentDatasetId_.toStdString() != detectedDataset) ||
-                              allDiscoveredPairs_.empty();
+        bool datasetChanged = appController_.datasetRoot() != resolvedRoot ||
+                              appController_.currentDatasetId() != detectedDataset ||
+                              appController_.discoveredPairs().empty();
 
         if (datasetChanged) {
-            datasetRoot_ = resolvedRoot;
             ui->txtDatasetDir->setText(QString::fromStdString(resolvedRoot.string()));
 
             isUpdatingControls_ = true;
@@ -911,7 +687,7 @@ void MainWindow::onSelectSingleImageClicked()
         const auto found = qart::core::datasets::CanonicalPairLookup::findByImagePath(
             resolvedRoot,
             filePath,
-            allDiscoveredPairs_
+            appController_.discoveredPairs()
         );
 
         if (found.has_value()) {
@@ -994,7 +770,7 @@ void MainWindow::onSelectSingleImageClicked()
 void MainWindow::onFullValidationClicked()
 {
     try {
-        if (allDiscoveredPairs_.empty()) {
+        if (appController_.discoveredPairs().empty()) {
             QMessageBox::information(this, "Thông báo", "Chưa có tập dữ liệu nào được mở để kiểm tra toàn bộ.");
             return;
         }
@@ -1006,9 +782,9 @@ void MainWindow::onFullValidationClicked()
         // This action is explicitly a fresh physical re-validation.
         validatedResultsCache_.clear();
 
-        std::size_t total = allDiscoveredPairs_.size();
+        std::size_t total = appController_.discoveredPairs().size();
         for (std::size_t i = 0; i < total; ++i) {
-            (void)getOrValidatePair(allDiscoveredPairs_[i]);
+            (void)getOrValidatePair(appController_.discoveredPairs()[i]);
 
             if (i % 50 == 0 || i == total - 1) {
                 int percent = static_cast<int>((i + 1) * 100 / total);
@@ -1250,7 +1026,7 @@ void MainWindow::onExportCsvClicked()
             return;
         }
 
-        const QString defaultPath = QString::fromStdString((datasetRoot_ / "validation_manifest_report.csv").string());
+        const QString defaultPath = QString::fromStdString((appController_.datasetRoot() / "validation_manifest_report.csv").string());
         const QString saveFile = QFileDialog::getSaveFileName(
             this,
             "Xuất báo cáo Manifest CSV",

@@ -18,6 +18,7 @@
 #include "core/configuration/dataset_configuration.h"
 #include "core/manifests/validation_manifest_row.h"
 #include "core/visualization/preview_pair_selector.h"
+#include "application/application_controller.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -63,22 +64,10 @@ private:
     void displayPair(const PairItemEntry &entry);
     void renderImageToLabel(QLabel *label, const QString &imagePath);
 
-    [[nodiscard]]
-    std::filesystem::path resolveDatasetRoot(const std::filesystem::path &inputPath) const;
-
-    [[nodiscard]]
-    qart::core::domain::validation::PairValidationPolicy
-    getDatasetValidationPolicy(const std::string &datasetId) const;
 
     [[nodiscard]]
     qart::core::domain::validation::PairValidationResult
     getOrValidatePair(const qart::core::domain::datasets::DatasetPair &pair);
-
-    void loadCanonicalValidationManifest();
-
-    [[nodiscard]]
-    std::vector<qart::core::domain::validation::PairValidationResult>
-    previewCandidates(const std::vector<qart::core::domain::datasets::DatasetPair> &pairs) const;
 
     [[nodiscard]]
     qart::core::domain::validation::PairValidationStatus
@@ -94,20 +83,9 @@ private:
     QString getStatusDescription(qart::core::domain::validation::PairValidationStatus status) const;
 
     Ui::MainWindow *ui;
-    std::filesystem::path datasetRoot_;
-
-    // Fast-loading discovered dataset pairs
-    std::vector<qart::core::domain::datasets::DatasetPair> allDiscoveredPairs_;
 
     // On-demand validation cache by pairId
     std::map<std::string, qart::core::domain::validation::PairValidationResult> validatedResultsCache_;
-
-    // Typed Schema 2.0 results used for selection without decoding every image.
-    std::map<std::string, qart::core::domain::validation::PairValidationResult> manifestResults_;
-
-    // Configuration is the sole authority for the canonical manifest path.
-    std::optional<qart::core::configuration::DatasetConfiguration> datasetConfiguration_;
-    std::string canonicalManifestError_;
 
     // Currently filtered and displayed item entries
     std::vector<PairItemEntry> displayedItems_;
@@ -118,7 +96,8 @@ private:
     // Export rows
     std::vector<qart::core::manifests::ValidationManifestRow> manifestRows_;
 
-    QString currentDatasetId_;
     bool isUpdatingControls_ = false;
+
+    qart::application::ApplicationController appController_;
 };
 #endif // MAINWINDOW_H

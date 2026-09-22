@@ -162,6 +162,9 @@ qt_add_executable(Visual_Thermal_Concept
         mainwindow.cpp
         mainwindow.h
         mainwindow.ui
+
+        src/application/application_controller.cpp
+        src/application/application_controller.h
 )
 
 target_include_directories(Visual_Thermal_Concept
