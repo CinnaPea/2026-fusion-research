@@ -27,6 +27,7 @@ Makefile
 *.o
 *.obj
 *.pdb
+*.dSYM/
 
 # OS junk
 .DS_Store
