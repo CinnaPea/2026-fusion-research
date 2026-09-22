@@ -6,18 +6,14 @@
 #include <QLabel>
 #include <QString>
 #include <filesystem>
-#include <map>
 #include <optional>
-#include <string>
 #include <vector>
 
 #include "core/domain/datasets/dataset_pair.h"
-#include "core/domain/validation/pair_validation_policy.h"
 #include "core/domain/validation/pair_validation_result.h"
 #include "core/domain/validation/pair_validation_status.h"
-#include "core/configuration/dataset_configuration.h"
 #include "core/manifests/validation_manifest_row.h"
-#include "core/visualization/preview_pair_selector.h"
+#include "application/application_controller.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -46,7 +42,7 @@ private slots:
     void onBrowseDatasetClicked();
     void onSelectSingleImageClicked();
     void onPairSelected(QListWidgetItem *item);
-    void onSearchTextChanged(const QString &query);
+    void onSearchTextChanged(const QString &query) const;
     void onExportCsvClicked();
     void onDatasetChanged(int index);
     void onPartitionChanged(int index);
@@ -60,65 +56,25 @@ private:
     void setupUiControls();
     void loadDatasetFromDirectory(const QString &dirPath);
     void applyFiltersAndModes();
-    void displayPair(const PairItemEntry &entry);
-    void renderImageToLabel(QLabel *label, const QString &imagePath);
+    void displayPair(const PairItemEntry &entry) const;
+    static void renderImageToLabel(QLabel *label, const QString &imagePath);
 
     [[nodiscard]]
-    std::filesystem::path resolveDatasetRoot(const std::filesystem::path &inputPath) const;
+    static QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status);
 
     [[nodiscard]]
-    qart::core::domain::validation::PairValidationPolicy
-    getDatasetValidationPolicy(const std::string &datasetId) const;
+    static QString getStatusColorHex(qart::core::domain::validation::PairValidationStatus status);
 
     [[nodiscard]]
-    qart::core::domain::validation::PairValidationResult
-    getOrValidatePair(const qart::core::domain::datasets::DatasetPair &pair);
-
-    void loadCanonicalValidationManifest();
-
-    [[nodiscard]]
-    std::vector<qart::core::domain::validation::PairValidationResult>
-    previewCandidates(const std::vector<qart::core::domain::datasets::DatasetPair> &pairs) const;
-
-    [[nodiscard]]
-    qart::core::domain::validation::PairValidationStatus
-    safeParseStatus(const std::string &statusStr) const;
-
-    [[nodiscard]]
-    QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status) const;
-
-    [[nodiscard]]
-    QString getStatusColorHex(qart::core::domain::validation::PairValidationStatus status) const;
-
-    [[nodiscard]]
-    QString getStatusDescription(qart::core::domain::validation::PairValidationStatus status) const;
+    static QString getStatusDescription(qart::core::domain::validation::PairValidationStatus status);
 
     Ui::MainWindow *ui;
-    std::filesystem::path datasetRoot_;
-
-    // Fast-loading discovered dataset pairs
-    std::vector<qart::core::domain::datasets::DatasetPair> allDiscoveredPairs_;
-
-    // On-demand validation cache by pairId
-    std::map<std::string, qart::core::domain::validation::PairValidationResult> validatedResultsCache_;
-
-    // Typed Schema 2.0 results used for selection without decoding every image.
-    std::map<std::string, qart::core::domain::validation::PairValidationResult> manifestResults_;
-
-    // Configuration is the sole authority for the canonical manifest path.
-    std::optional<qart::core::configuration::DatasetConfiguration> datasetConfiguration_;
-    std::string canonicalManifestError_;
 
     // Currently filtered and displayed item entries
     std::vector<PairItemEntry> displayedItems_;
 
-    // Manual Selection Queue (Mode C)
-    std::vector<qart::core::domain::datasets::DatasetPair> manualSelectionQueue_;
-
-    // Export rows
-    std::vector<qart::core::manifests::ValidationManifestRow> manifestRows_;
-
-    QString currentDatasetId_;
     bool isUpdatingControls_ = false;
+
+    qart::application::ApplicationController appController_;
 };
 #endif // MAINWINDOW_H
