@@ -5,6 +5,7 @@
 #include "core/datasets/msrs_adapter.h"
 #include "core/datasets/roadscene_adapter.h"
 #include "core/datasets/canonical_pair_lookup.h"
+#include "core/configuration/dataset_configuration.h"
 #include "core/domain/datasets/dataset_exceptions.h"
 #include "core/domain/datasets/dataset_pair.h"
 #include "core/domain/validation/pair_validation_policy.h"
@@ -33,10 +34,14 @@
 #include <map>
 #include <random>
 #include <set>
+#include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using qart::core::domain::datasets::DatasetPair;
 using qart::core::domain::datasets::DatasetPartitionId;
+using qart::core::configuration::DatasetConfiguration;
 using qart::core::domain::validation::PairValidationPolicy;
 using qart::core::domain::validation::PairValidationResult;
 using qart::core::domain::validation::PairValidationStatus;
@@ -246,37 +251,97 @@ PairValidationResult MainWindow::getOrValidatePair(const DatasetPair &pair)
 void MainWindow::loadCanonicalValidationManifest()
 {
     manifestResults_.clear();
+    canonicalManifestError_.clear();
 
-    const std::filesystem::path manifestPath =
-        datasetRoot_ / "validation_manifest_report.csv";
-    if (!std::filesystem::is_regular_file(manifestPath)) {
+    if (!datasetConfiguration_.has_value()) {
+        canonicalManifestError_ =
+            "Canonical dataset configuration is unavailable.";
         return;
     }
 
-    CsvValidationManifestReader reader;
-    const ValidationManifest manifest = reader.read(manifestPath);
-    for (auto result : manifest.toResults()) {
-        manifestResults_.emplace(result.pair().pairId(), std::move(result));
+    const std::filesystem::path manifestPath =
+        datasetConfiguration_->resolveManifestPath();
+    if (!std::filesystem::is_regular_file(manifestPath)) {
+        canonicalManifestError_ =
+            "Canonical manifest does not exist at configured path: "
+            + manifestPath.string();
+        return;
+    }
+
+    try {
+        CsvValidationManifestReader reader;
+        const ValidationManifest manifest = reader.read(manifestPath);
+        const auto results = manifest.toResults();
+
+        std::unordered_map<std::string, const DatasetPair*> discoveredById;
+        discoveredById.reserve(allDiscoveredPairs_.size());
+        for (const auto &pair : allDiscoveredPairs_) {
+            discoveredById.emplace(pair.pairId(), &pair);
+        }
+
+        std::unordered_set<std::string> manifestIds;
+        manifestIds.reserve(results.size());
+        for (const auto &result : results) {
+            if (result.pair().datasetId() != datasetConfiguration_->datasetId()) {
+                throw std::runtime_error(
+                    "Canonical manifest contains a pair from another dataset: "
+                    + result.pair().pairId()
+                );
+            }
+
+            const auto discovered = discoveredById.find(result.pair().pairId());
+            if (discovered == discoveredById.end() || *discovered->second != result.pair()) {
+                throw std::runtime_error(
+                    "Canonical manifest pair metadata is stale or non-canonical: "
+                    + result.pair().pairId()
+                );
+            }
+            manifestIds.insert(result.pair().pairId());
+        }
+
+        if (manifestIds.size() != discoveredById.size()) {
+            throw std::runtime_error(
+                "Canonical manifest is incomplete or stale for the current dataset "
+                "(manifest pairs=" + std::to_string(manifestIds.size())
+                + ", discovered pairs=" + std::to_string(discoveredById.size()) + ")."
+            );
+        }
+
+        for (auto result : results) {
+            manifestResults_.emplace(result.pair().pairId(), std::move(result));
+        }
+    } catch (const std::exception &ex) {
+        manifestResults_.clear();
+        canonicalManifestError_ =
+            "Cannot load complete canonical manifest '"
+            + manifestPath.string() + "': " + ex.what();
     }
 }
 
 std::vector<PairValidationResult>
 MainWindow::previewCandidates(const std::vector<DatasetPair> &pairs) const
 {
+    if (!canonicalManifestError_.empty()) {
+        throw std::runtime_error(canonicalManifestError_);
+    }
+
+    if (!datasetConfiguration_.has_value() || manifestResults_.empty()) {
+        throw std::runtime_error(
+            "Mode B/C requires a complete canonical Schema 2.0 manifest."
+        );
+    }
+
     std::vector<PairValidationResult> results;
     results.reserve(pairs.size());
 
     for (const auto &pair : pairs) {
-        const auto cached = validatedResultsCache_.find(pair.pairId());
-        if (cached != validatedResultsCache_.end()) {
-            results.push_back(cached->second);
-            continue;
-        }
-
         const auto manifested = manifestResults_.find(pair.pairId());
-        if (manifested != manifestResults_.end()) {
-            results.push_back(manifested->second);
+        if (manifested == manifestResults_.end()) {
+            throw std::runtime_error(
+                "Canonical manifest is missing filtered pair ID: " + pair.pairId()
+            );
         }
+        results.push_back(manifested->second);
     }
 
     return results;
@@ -309,6 +374,9 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
         allDiscoveredPairs_.clear();
         validatedResultsCache_.clear();
         manifestResults_.clear();
+        datasetConfiguration_.reset();
+        canonicalManifestError_.clear();
+        manualSelectionQueue_.clear();
 
         datasetRoot_ = resolveDatasetRoot(dirPath.toStdString());
 
@@ -384,6 +452,28 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
 
         currentDatasetId_ = QString::fromStdString(detectedDatasetId);
         allDiscoveredPairs_ = std::move(discoveredPairs);
+
+        std::string manifestRelativePath;
+        std::vector<DatasetPartitionId> configuredPartitions;
+        if (detectedDatasetId == "llvip") {
+            manifestRelativePath = "manifests/llvip/llvip_validation_schema_2_0.csv";
+            configuredPartitions = {DatasetPartitionId("train"), DatasetPartitionId("test")};
+        } else if (detectedDatasetId == "msrs") {
+            manifestRelativePath = "manifests/msrs/msrs_validation_schema_2_0.csv";
+            configuredPartitions = {DatasetPartitionId("train"), DatasetPartitionId("test")};
+        } else if (detectedDatasetId == "roadscene") {
+            manifestRelativePath = "manifests/roadscene/roadscene_validation_schema_2_0.csv";
+            configuredPartitions = {DatasetPartitionId("all")};
+        }
+
+        datasetConfiguration_.emplace(
+            "2.0",
+            detectedDatasetId,
+            datasetRoot_,
+            manifestRelativePath,
+            configuredPartitions,
+            getDatasetValidationPolicy(detectedDatasetId)
+        );
         loadCanonicalValidationManifest();
 
         // Update controls reflectively
@@ -473,16 +563,12 @@ void MainWindow::applyFiltersAndModes()
             const std::vector<PairValidationResult> candidateResults =
                 previewCandidates(filteredPairs);
 
-            try {
-                PreviewSelectionRequest request(countPerPartition, {});
-                PreviewPairSelector selector;
-                PreviewSelection selection = selector.select(candidateResults, request);
+            PreviewSelectionRequest request(countPerPartition, {});
+            PreviewPairSelector selector;
+            PreviewSelection selection = selector.select(candidateResults, request);
 
-                for (const auto &res : selection.automaticResults()) {
-                    displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
-                }
-            } catch (const std::exception &ex) {
-                ui->lblSystemStatus->setText(QString("PreviewPairSelector error: %1").arg(ex.what()));
+            for (const auto &res : selection.automaticResults()) {
+                displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
             }
         }
         else if (viewMode == "queue") {
@@ -500,20 +586,16 @@ void MainWindow::applyFiltersAndModes()
                 }
             }
 
-            try {
-                PreviewSelectionRequest request(countPerPartition, explicitPairIds);
-                PreviewPairSelector selector;
-                PreviewSelection selection = selector.select(candidateResults, request);
+            PreviewSelectionRequest request(countPerPartition, explicitPairIds);
+            PreviewPairSelector selector;
+            PreviewSelection selection = selector.select(candidateResults, request);
 
-                for (const auto &res : selection.automaticResults()) {
-                    displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
-                }
+            for (const auto &res : selection.automaticResults()) {
+                displayedItems_.push_back(PairItemEntry{res.pair(), res, "[AUTO]"});
+            }
 
-                for (const auto &res : selection.explicitResults()) {
-                    displayedItems_.push_back(PairItemEntry{res.pair(), res, "[MANUAL]"});
-                }
-            } catch (const std::exception &ex) {
-                ui->lblSystemStatus->setText(QString("PreviewPairSelector error: %1").arg(ex.what()));
+            for (const auto &res : selection.explicitResults()) {
+                displayedItems_.push_back(PairItemEntry{res.pair(), res, "[MANUAL]"});
             }
         }
         else if (viewMode == "random") {
@@ -579,6 +661,10 @@ void MainWindow::applyFiltersAndModes()
             onPairSelected(ui->lstImagePairs->item(0));
         }
     } catch (const std::exception &ex) {
+        const QString failedMode = ui->cbViewMode->currentData().toString();
+        if (failedMode == "sample" || failedMode == "queue") {
+            ui->lblPairCount->setText("Mode B/C không khả dụng");
+        }
         ui->lblSystemStatus->setText(QString("Lỗi áp dụng bộ lọc: %1").arg(ex.what()));
     }
 }

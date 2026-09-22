@@ -15,6 +15,7 @@
 #include "core/domain/validation/pair_validation_policy.h"
 #include "core/domain/validation/pair_validation_result.h"
 #include "core/domain/validation/pair_validation_status.h"
+#include "core/configuration/dataset_configuration.h"
 #include "core/manifests/validation_manifest_row.h"
 #include "core/visualization/preview_pair_selector.h"
 
@@ -103,6 +104,10 @@ private:
 
     // Typed Schema 2.0 results used for selection without decoding every image.
     std::map<std::string, qart::core::domain::validation::PairValidationResult> manifestResults_;
+
+    // Configuration is the sole authority for the canonical manifest path.
+    std::optional<qart::core::configuration::DatasetConfiguration> datasetConfiguration_;
+    std::string canonicalManifestError_;
 
     // Currently filtered and displayed item entries
     std::vector<PairItemEntry> displayedItems_;
