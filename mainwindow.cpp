@@ -71,6 +71,8 @@ void MainWindow::setupUiControls()
     ui->cbDatasetSelect->addItem("LLVIP Dataset", "llvip");
     ui->cbDatasetSelect->addItem("MSRS Dataset", "msrs");
     ui->cbDatasetSelect->addItem("RoadScene Dataset", "roadscene");
+    ui->cbDatasetSelect->addItem(("M3FD Dataset", "m3fd"));
+    ui->cbDatasetSelect->addItem("TNO Dataset", "tno");
 
     // Partition combo box items
     ui->cbPartitionSelect->clear();
@@ -115,7 +117,7 @@ void MainWindow::onBrowseDatasetClicked()
     try {
         const QString selectedDir = QFileDialog::getExistingDirectory(
             this,
-            "Chọn thư mục bộ dữ liệu (LLVIP, MSRS, RoadScene...)",
+            "Chọn thư mục bộ dữ liệu (LLVIP, MSRS, RoadScene, M3FD...)",
             ui->txtDatasetDir->text().isEmpty() ? QDir::homePath() : ui->txtDatasetDir->text()
         );
 
@@ -204,7 +206,11 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
             ui->cbPartitionSelect->addItem(
                 "test", "test"
             );
-        } else if (currentDatasetId == "roadscene") {
+        } else if (
+            currentDatasetId == "roadscene"
+            || currentDatasetId == "m3fd"
+            || currentDatasetId == "tno"
+        ) {
             ui->cbPartitionSelect->addItem(
                 "all (native partition)", "all"
             );

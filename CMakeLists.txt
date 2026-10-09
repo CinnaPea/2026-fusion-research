@@ -124,6 +124,12 @@ add_library(qart_core STATIC
         src/core/datasets/roadscene_adapter.cpp
         src/core/datasets/roadscene_adapter.h
 
+        src/core/datasets/m3fd_adapter.cpp
+        src/core/datasets/m3fd_adapter.h
+
+        src/core/datasets/tno_adapter.cpp
+        src/core/datasets/tno_adapter.h
+
         src/core/visualization/preview_selection.cpp
         src/core/visualization/preview_selection.h
 
@@ -645,6 +651,39 @@ if(BUILD_TESTING)
             COMMAND test_roadscene_adapter
     )
 
+    add_executable(
+            test_m3fd_adapter
+            tests/datasets/test_m3fd_adapter.cpp
+    )
+
+    target_link_libraries(
+            test_m3fd_adapter
+            PRIVATE
+            qart_core
+    )
+
+    add_test(
+            NAME M3FDAdapterContract
+            COMMAND test_m3fd_adapter
+    )
+
+
+    add_executable(
+            test_tno_adapter
+            tests/datasets/test_tno_adapter.cpp
+    )
+
+    target_link_libraries(
+            test_tno_adapter
+            PRIVATE
+            qart_core
+    )
+
+    add_test(
+            NAME TNOAdapterContract
+            COMMAND test_tno_adapter
+    )
+
     add_executable(test_preview_selection
             tests/visualization/test_preview_selection.cpp
     )
@@ -880,6 +919,112 @@ if(BUILD_TESTING)
                 RoadSceneRealPreviewParity
                 PROPERTIES
                 LABELS "phase1;parity;real_data;roadscene;preview"
+        )
+        add_executable(
+                test_m3fd_real_parity
+                tests/parity/test_m3fd_real_parity.cpp
+        )
+
+        target_link_libraries(
+                test_m3fd_real_parity
+                PRIVATE
+                qart_core
+        )
+
+        add_test(
+                NAME M3FDRealDataParity
+                COMMAND
+                test_m3fd_real_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                M3FDRealDataParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;m3fd"
+        )
+        add_executable(
+                test_m3fd_real_preview_parity
+                tests/parity/test_m3fd_real_preview_parity.cpp
+        )
+
+        target_include_directories(
+                test_m3fd_real_preview_parity
+                PRIVATE
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(
+                test_m3fd_real_preview_parity
+                PRIVATE
+                qart_core
+                ${OpenCV_LIBS}
+        )
+
+        add_test(
+                NAME M3FDRealPreviewParity
+                COMMAND
+                test_m3fd_real_preview_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                M3FDRealPreviewParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;m3fd;preview"
+        )
+        add_executable(
+                test_tno_real_parity
+                tests/parity/test_tno_real_parity.cpp
+        )
+
+        target_link_libraries(
+                test_tno_real_parity
+                PRIVATE
+                qart_core
+        )
+
+        add_test(
+                NAME TNORealDataParity
+                COMMAND
+                test_tno_real_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                TNORealDataParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;tno"
+        )
+        add_executable(
+                test_tno_real_preview_parity
+                tests/parity/test_tno_real_preview_parity.cpp
+        )
+
+        target_include_directories(
+                test_tno_real_preview_parity
+                PRIVATE
+                ${OpenCV_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(
+                test_tno_real_preview_parity
+                PRIVATE
+                qart_core
+                ${OpenCV_LIBS}
+        )
+
+        add_test(
+                NAME TNORealPreviewParity
+                COMMAND
+                test_tno_real_preview_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                TNORealPreviewParity
+                PROPERTIES
+                LABELS "phase1;parity;real_data;tno;preview"
         )
     endif()
 endif()

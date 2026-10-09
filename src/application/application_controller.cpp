@@ -3,6 +3,8 @@
 #include "core/datasets/llvip_adapter.h"
 #include "core/datasets/msrs_adapter.h"
 #include "core/datasets/roadscene_adapter.h"
+#include "core/datasets/m3fd_adapter.h"
+#include "core/datasets/tno_adapter.h"
 #include "core/domain/datasets/dataset_partition_id.h"
 #include "core/domain/imaging/image_dimensions.h"
 #include "core/manifests/csv_validation_manifest_reader.h"
@@ -112,6 +114,56 @@ bool ApplicationController::loadDataset(
         }
     }
 
+    if (
+        discoveredPairs.empty()
+        && (
+            requestedDatasetId.empty()
+            || requestedDatasetId == "m3fd"
+        )
+    ) {
+            try {
+                core::datasets::M3FDAdapter adapter;
+
+                discoveredPairs =
+                    discoverWithAdapter(
+                        adapter,
+                        datasetRoot_
+                    );
+
+                detectedDatasetId =
+                    adapter.datasetId();
+            }
+            catch (...) {
+                discoveredPairs.clear();
+                detectedDatasetId.clear();
+            }
+    }
+
+    if (
+        discoveredPairs.empty()
+        && (
+            requestedDatasetId.empty()
+            || requestedDatasetId == "tno"
+        )
+    ) {
+            try {
+                core::datasets::TNOAdapter adapter;
+
+                discoveredPairs =
+                    discoverWithAdapter(
+                        adapter,
+                        datasetRoot_
+                    );
+
+                detectedDatasetId =
+                    adapter.datasetId();
+            }
+            catch (...) {
+                discoveredPairs.clear();
+                detectedDatasetId.clear();
+            }
+    }
+
     if (discoveredPairs.empty()) {
         clearDatasetSession();
         datasetRoot_ = resolveDatasetRoot(inputPath);
@@ -138,6 +190,22 @@ bool ApplicationController::loadDataset(
     } else if (detectedDatasetId == "roadscene") {
         manifestRelativePath =
             "manifests/roadscene/roadscene_validation_schema_2_0.csv";
+        configuredPartitions = {
+            DatasetPartitionId("all")
+        };
+    } else if (detectedDatasetId == "m3fd") {
+        manifestRelativePath =
+            "manifests/m3fd/"
+            "m3fd_validation_schema_2_0.csv";
+
+        configuredPartitions = {
+            DatasetPartitionId("all")
+        };
+    } else if (detectedDatasetId == "tno") {
+        manifestRelativePath =
+            "manifests/tno/"
+            "tno_validation_schema_2_0.csv";
+
         configuredPartitions = {
             DatasetPartitionId("all")
         };
@@ -238,6 +306,8 @@ std::filesystem::path ApplicationController::resolveDatasetRoot(
         folderName == "llvip"
         || folderName == "msrs"
         || folderName == "roadscene"
+        || folderName == "m3fd"
+        || folderName == "tno"
     ) {
         if (current.has_parent_path()) {
             const std::filesystem::path parent = current.parent_path();
@@ -604,6 +674,8 @@ void ApplicationController::loadCanonicalValidationManifest()
                 candidate == "llvip"
                 || candidate == "msrs"
                 || candidate == "roadscene"
+                || candidate == "m3fd"
+                || candidate == "tno"
             ) {
                 detectedDataset = candidate;
             }
