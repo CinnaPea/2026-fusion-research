@@ -71,7 +71,7 @@ void MainWindow::setupUiControls()
     ui->cbDatasetSelect->addItem("LLVIP Dataset", "llvip");
     ui->cbDatasetSelect->addItem("MSRS Dataset", "msrs");
     ui->cbDatasetSelect->addItem("RoadScene Dataset", "roadscene");
-    ui->cbDatasetSelect->addItem(("M3FD Dataset", "m3fd"));
+    ui->cbDatasetSelect->addItem("M3FD Dataset", "m3fd");
     ui->cbDatasetSelect->addItem("TNO Dataset", "tno");
 
     // Partition combo box items
@@ -117,7 +117,7 @@ void MainWindow::onBrowseDatasetClicked()
     try {
         const QString selectedDir = QFileDialog::getExistingDirectory(
             this,
-            "Chọn thư mục bộ dữ liệu (LLVIP, MSRS, RoadScene, M3FD...)",
+            "Chọn thư mục bộ dữ liệu (LLVIP, MSRS, RoadScene, M3FD, TNO...)",
             ui->txtDatasetDir->text().isEmpty() ? QDir::homePath() : ui->txtDatasetDir->text()
         );
 
@@ -164,7 +164,7 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
                 "Không nhận diện được Dataset",
                 QString(
                     "Không thể nhận diện tập dữ liệu chuẩn "
-                    "(LLVIP, MSRS, RoadScene) tại đường dẫn:\n%1\n\n"
+                    "(LLVIP, MSRS, RoadScene, M3FD, TNO) tại đường dẫn:\n%1\n\n"
                     "Vui lòng kiểm tra lại cấu trúc thư mục chứa "
                     "các tập dữ liệu chuẩn!"
                 ).arg(dirPath)
@@ -606,7 +606,7 @@ void MainWindow::onSelectSingleImageClicked()
                 "Không nhận diện được Dataset",
                 QString(
                     "Tập tin ảnh '%1' không thuộc các bộ dữ liệu "
-                    "được hỗ trợ (LLVIP, MSRS, RoadScene)."
+                    "được hỗ trợ (LLVIP, MSRS, RoadScene, M3FD, TNO)."
                 ).arg(
                     QString::fromStdString(
                         filePath.filename().string()
