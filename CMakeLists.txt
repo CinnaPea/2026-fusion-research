@@ -30,6 +30,10 @@ set(
 # ---------------------------------------------------------------------------
 
 add_library(qart_core STATIC
+        # Justification & Paper Alignment: Engineering Decision — not paper-derived.
+        # Register accepted thermal input/BYPASS contracts; no scientific changes.
+        src/core/enhancement/thermal_input.cpp
+        src/core/enhancement/thermal_input.h
         src/core/domain/datasets/dataset_partition_id.cpp
         src/core/domain/datasets/dataset_partition_id.h
 
@@ -146,8 +150,7 @@ add_library(qart_core STATIC
 target_include_directories(qart_core
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-
-        PRIVATE
+        # Public thermal contract exposes cv::Mat; propagate its include path.
         ${OpenCV_INCLUDE_DIRS}
 )
 
@@ -193,6 +196,19 @@ target_link_libraries(Visual_Thermal_Concept
 include(CTest)
 
 if(BUILD_TESTING)
+    # Justification & Paper Alignment: Engineering Decision — not paper-derived.
+    # Focused tests validate accepted copy/conversion contracts and byte parity.
+    add_executable(test_thermal_input tests/enhancement/test_thermal_input.cpp)
+    target_link_libraries(test_thermal_input PRIVATE qart_core ${OpenCV_LIBS})
+    add_test(NAME ThermalInputContract COMMAND test_thermal_input)
+
+    add_executable(test_phase2_thermal_input_parity
+            tests/parity/test_phase2_thermal_input_parity.cpp)
+    target_link_libraries(test_phase2_thermal_input_parity PRIVATE qart_core ${OpenCV_LIBS})
+    add_test(NAME Phase2ThermalInputParity COMMAND test_phase2_thermal_input_parity
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/parity/phase2_input")
+    set_tests_properties(ThermalInputContract Phase2ThermalInputParity
+            PROPERTIES LABELS "phase2;thermal_input")
 
     add_executable(test_dataset_partition_id
             tests/domain/datasets/test_dataset_partition_id.cpp
