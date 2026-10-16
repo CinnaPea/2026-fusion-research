@@ -27,6 +27,15 @@ struct PairItemEntry {
     QString sourceTag; // "ALL", "AUTO", "MANUAL"
 };
 
+// Read-only snapshot for future Phase 2 UI bindings.
+// This identifies a source; it does not decode or process it.
+struct Phase2SourceSelection
+{
+    QString datasetId;
+    QString pairId;
+    std::filesystem::path thermalPath;
+};
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -34,6 +43,9 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
+
+    [[nodiscard]]
+    std::optional<Phase2SourceSelection> selectedPhase2Source() const;
 
 protected:
     void resizeEvent(QResizeEvent *event) override;

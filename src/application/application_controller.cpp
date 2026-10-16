@@ -16,6 +16,7 @@
 #include "core/datasets/canonical_pair_lookup.h"
 #include "core/manifests/csv_validation_manifest_writer.h"
 #include "core/manifests/validation_manifest_row.h"
+#include "core/enhancement/thermal_input.h"
 
 #include <algorithm>
 #include <cctype>
@@ -63,6 +64,45 @@ std::vector<DatasetPair> discoverWithAdapter(
 }
 
 } // namespace
+
+ThermalProcessingResult ApplicationController::processThermal(
+    const cv::Mat& decodedThermal,
+    ThermalProcessingMode mode)
+{
+    if (
+        mode != ThermalProcessingMode::Bypass
+        && mode != ThermalProcessingMode::N5PostHalf
+    ) {
+        throw std::invalid_argument(
+            "Unsupported thermal processing mode"
+        );
+    }
+
+    const cv::Mat prepared =
+        core::enhancement::prepareThermalUint8Plane(
+            decodedThermal
+        );
+
+    if (mode == ThermalProcessingMode::Bypass) {
+        return {
+            core::enhancement::bypassThermal(prepared),
+            ThermalProcessingMode::Bypass
+        };
+    }
+
+    if (!n5Enhancer_) {
+        n5Enhancer_ = std::make_unique<
+            core::enhancement::N5ThermalEnhancer
+        >();
+    }
+
+    auto enhanced = n5Enhancer_->enhance(prepared);
+
+    return {
+        std::move(enhanced.outputImage),
+        ThermalProcessingMode::N5PostHalf
+    };
+}
 
 bool ApplicationController::loadDataset(
     const std::filesystem::path& inputPath,

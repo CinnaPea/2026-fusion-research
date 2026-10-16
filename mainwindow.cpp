@@ -1260,3 +1260,53 @@ void MainWindow::onExportCsvClicked()
         );
     }
 }
+
+std::optional<Phase2SourceSelection>
+MainWindow::selectedPhase2Source() const
+{
+    const QListWidgetItem* item =
+        ui->lstImagePairs->currentItem();
+
+    if (!item || item->isHidden()) {
+        return std::nullopt;
+    }
+
+    bool validIndex = false;
+
+    const int index =
+        item->data(Qt::UserRole).toInt(&validIndex);
+
+    if (
+        !validIndex
+        || index < 0
+        || static_cast<std::size_t>(index)
+            >= displayedItems_.size()
+    ) {
+        return std::nullopt;
+    }
+
+    const PairItemEntry& entry =
+        displayedItems_[static_cast<std::size_t>(index)];
+
+    if (
+        !entry.validationResult.has_value()
+        || entry.validationResult->status()
+            != PairValidationStatus::Valid
+        || !entry.validationResult->thermalDecoded()
+    ) {
+        return std::nullopt;
+    }
+
+    const auto& root = appController_.datasetRoot();
+    const auto& datasetId = appController_.currentDatasetId();
+
+    if (root.empty() || datasetId.empty()) {
+        return std::nullopt;
+    }
+
+    return Phase2SourceSelection{
+        QString::fromStdString(datasetId),
+        QString::fromStdString(entry.pair.pairId()),
+        root / entry.pair.thermalRelativePath()
+    };
+}

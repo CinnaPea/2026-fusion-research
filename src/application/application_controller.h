@@ -8,7 +8,9 @@
 #include "core/domain/validation/pair_validation_policy.h"
 #include "core/domain/validation/pair_validation_result.h"
 #include "core/visualization/preview_selection.h"
+#include "core/enhancement/n5_thermal_enhancer.h"
 
+#include <memory>
 #include <functional>
 #include <filesystem>
 #include <map>
@@ -18,6 +20,18 @@
 #include <cstddef>
 
 namespace qart::application {
+
+enum class ThermalProcessingMode
+{
+    Bypass,
+    N5PostHalf
+};
+
+struct ThermalProcessingResult
+{
+    cv::Mat outputImage;
+    ThermalProcessingMode appliedMode;
+};
 
 struct ValidationExportItem
 {
@@ -133,6 +147,8 @@ public:
     const std::vector<core::domain::datasets::DatasetPair>&
     discoveredPairs() const noexcept;
 
+    [[nodiscard]]
+    ThermalProcessingResult processThermal(const cv::Mat& decodedThermal, ThermalProcessingMode mode = ThermalProcessingMode::Bypass);
 private:
     void loadCanonicalValidationManifest();
 
@@ -174,6 +190,8 @@ private:
     previewCandidates(
         const std::vector<core::domain::datasets::DatasetPair>& pairs
     ) const;
+
+    std::unique_ptr<core::enhancement::N5ThermalEnhancer> n5Enhancer_;
 };
 
 } // namespace qart::application
