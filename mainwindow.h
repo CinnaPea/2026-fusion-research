@@ -36,6 +36,12 @@ struct Phase2SourceSelection
     std::filesystem::path thermalPath;
 };
 
+enum class N5UiState {
+    Idle,
+    Processing,
+    Completed
+};
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -64,12 +70,24 @@ private slots:
     void onAddToQueueClicked();
     void onClearQueueClicked();
 
+    // Tab and N5 enhancement slots
+    void onWorkspaceTabChanged(int index);
+    void onApplyN5Clicked();
+    void onResetN5Clicked();
+    void onN5Finished(const QString &pairId, const QPixmap &enhancedPixmap, qint64 elapsedMs);
+
 private:
     void setupUiControls();
     void loadDatasetFromDirectory(const QString &dirPath);
     void applyFiltersAndModes();
     void displayPair(const PairItemEntry &entry) const;
     static void renderImageToLabel(QLabel *label, const QString &imagePath);
+
+    // N5 enhancement helpers
+    void updateQualityN5Tab(const PairItemEntry &entry);
+    void setN5UiState(N5UiState state, qint64 elapsedMs = 0);
+    void renderCachedN5Images();
+    static void renderCachedImageToLabel(QLabel *label, const QPixmap &pixmap);
 
     [[nodiscard]]
     static QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status);
@@ -88,5 +106,11 @@ private:
     bool isUpdatingControls_ = false;
 
     qart::application::ApplicationController appController_;
+
+    // N5 state & caching members
+    N5UiState n5State_ = N5UiState::Idle;
+    QPixmap cachedN5OriginalPixmap_;
+    QPixmap cachedN5EnhancedPixmap_;
+    QString activeN5PairId_;
 };
 #endif // MAINWINDOW_H

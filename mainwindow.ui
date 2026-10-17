@@ -268,167 +268,659 @@
        </widget>
       </item>
       <item>
-       <widget class="QGroupBox" name="grpImageViewer">
-        <property name="title">
-         <string>Hiển thị Cặp ảnh Tương ứng (Ảnh màu A1 - Ảnh nhiệt A2)</string>
+       <widget class="QTabWidget" name="tabMainWorkspaces">
+        <property name="currentIndex">
+         <number>0</number>
         </property>
-        <layout class="QVBoxLayout" name="imageViewerLayout">
-         <item>
-          <layout class="QVBoxLayout" name="statusBannerContainerLayout">
-           <item>
-            <layout class="QHBoxLayout" name="statusBannerLayout">
+        <widget class="QWidget" name="tabOriginalPair">
+         <attribute name="title">
+          <string>1. Cặp ảnh gốc &amp; Kiểm định (Phase 1)</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="tabOriginalLayout">
+          <item>
+           <widget class="QGroupBox" name="grpImageViewer">
+            <property name="title">
+             <string>Hiển thị Cặp ảnh Tương ứng (Ảnh màu A1 - Ảnh nhiệt A2)</string>
+            </property>
+            <layout class="QVBoxLayout" name="imageViewerLayout">
              <item>
-              <widget class="QLabel" name="lblCurrentPairId">
-               <property name="font">
-                <font>
-                 <pointsize>12</pointsize>
-                 <bold>true</bold>
-                </font>
-               </property>
-               <property name="text">
-                <string>Cặp ảnh: Chưa chọn</string>
-               </property>
-              </widget>
+              <layout class="QVBoxLayout" name="statusBannerContainerLayout">
+               <item>
+                <layout class="QHBoxLayout" name="statusBannerLayout">
+                 <item>
+                  <widget class="QLabel" name="lblCurrentPairId">
+                   <property name="font">
+                    <font>
+                     <pointsize>12</pointsize>
+                     <bold>true</bold>
+                    </font>
+                   </property>
+                   <property name="text">
+                    <string>Cặp ảnh: Chưa chọn</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="spacerStatus">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lblPairStatus">
+                   <property name="font">
+                    <font>
+                     <pointsize>11</pointsize>
+                     <bold>true</bold>
+                    </font>
+                   </property>
+                   <property name="text">
+                    <string>Trạng thái: --</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <widget class="QLabel" name="lblPairStatusMessage">
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="wordWrap">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+              </layout>
              </item>
              <item>
-              <spacer name="spacerStatus">
-               <property name="orientation">
-                <enum>Qt::Orientation::Horizontal</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-             <item>
-              <widget class="QLabel" name="lblPairStatus">
-               <property name="font">
-                <font>
-                 <pointsize>11</pointsize>
-                 <bold>true</bold>
-                </font>
-               </property>
-               <property name="text">
-                <string>Trạng thái: --</string>
-               </property>
-              </widget>
+              <layout class="QHBoxLayout" name="dualImageDisplayLayout">
+               <item>
+                <widget class="QGroupBox" name="grpVisibleImage">
+                 <property name="title">
+                  <string>Ảnh Màu / Quan sát (Visible - A1)</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="visibleFrameLayout">
+                  <item>
+                   <widget class="QLabel" name="lblVisibleImage">
+                    <property name="sizePolicy">
+                     <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                     </sizepolicy>
+                    </property>
+                    <property name="minimumSize">
+                     <size>
+                      <width>150</width>
+                      <height>150</height>
+                     </size>
+                    </property>
+                    <property name="frameShape">
+                     <enum>QFrame::Shape::Box</enum>
+                    </property>
+                    <property name="frameShadow">
+                     <enum>QFrame::Shadow::Sunken</enum>
+                    </property>
+                    <property name="text">
+                     <string>Chưa có ảnh màu</string>
+                    </property>
+                    <property name="alignment">
+                     <set>Qt::AlignmentFlag::AlignCenter</set>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lblVisibleInfo">
+                    <property name="text">
+                     <string>Đường dẫn: -- | Kích thước: --</string>
+                    </property>
+                    <property name="wordWrap">
+                     <bool>true</bool>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item>
+                <widget class="QGroupBox" name="grpThermalImage">
+                 <property name="title">
+                  <string>Ảnh Nhiệt / Hồng ngoại (Thermal - A2)</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="thermalFrameLayout">
+                  <item>
+                   <widget class="QLabel" name="lblThermalImage">
+                    <property name="sizePolicy">
+                     <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                     </sizepolicy>
+                    </property>
+                    <property name="minimumSize">
+                     <size>
+                      <width>150</width>
+                      <height>150</height>
+                     </size>
+                    </property>
+                    <property name="frameShape">
+                     <enum>QFrame::Shape::Box</enum>
+                    </property>
+                    <property name="frameShadow">
+                     <enum>QFrame::Shadow::Sunken</enum>
+                    </property>
+                    <property name="text">
+                     <string>Chưa có ảnh nhiệt</string>
+                    </property>
+                    <property name="alignment">
+                     <set>Qt::AlignmentFlag::AlignCenter</set>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="lblThermalInfo">
+                    <property name="text">
+                     <string>Đường dẫn: -- | Kích thước: --</string>
+                    </property>
+                    <property name="wordWrap">
+                     <bool>true</bool>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
              </item>
             </layout>
-           </item>
-           <item>
-            <widget class="QLabel" name="lblPairStatusMessage">
-             <property name="text">
-              <string/>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="dualImageDisplayLayout">
-           <item>
-            <widget class="QGroupBox" name="grpVisibleImage">
-             <property name="title">
-              <string>Ảnh Màu / Quan sát (Visible - A1)</string>
-             </property>
-             <layout class="QVBoxLayout" name="visibleFrameLayout">
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tabQualityN5">
+         <attribute name="title">
+          <string>2. Chất lượng &amp; N5 (Phase 2)</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="tabQualityLayout">
+          <item>
+           <layout class="QHBoxLayout" name="n5HeaderLayout">
+            <item>
+             <widget class="QLabel" name="lblN5PairInfo">
+              <property name="font">
+               <font>
+                <pointsize>11</pointsize>
+                <bold>true</bold>
+               </font>
+              </property>
+              <property name="text">
+               <string>Cặp ảnh: Chưa chọn</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="spacerN5Header">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QLabel" name="lblN5Status">
+              <property name="font">
+               <font>
+                <pointsize>10</pointsize>
+                <bold>true</bold>
+               </font>
+              </property>
+              <property name="text">
+               <string>Trạng thái: Sẵn sàng</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="n5BodyLayout">
+            <item>
+             <layout class="QHBoxLayout" name="n5ImagesLayout">
               <item>
-               <widget class="QLabel" name="lblVisibleImage">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
+               <widget class="QGroupBox" name="grpN5Original">
+                <property name="title">
+                 <string>Ảnh gốc (Thermal - A2)</string>
                 </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>150</width>
-                  <height>150</height>
-                 </size>
-                </property>
-                <property name="frameShape">
-                 <enum>QFrame::Shape::Box</enum>
-                </property>
-                <property name="frameShadow">
-                 <enum>QFrame::Shadow::Sunken</enum>
-                </property>
-                <property name="text">
-                 <string>Chưa có ảnh màu</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignmentFlag::AlignCenter</set>
-                </property>
+                <layout class="QVBoxLayout" name="n5OrigLayout">
+                 <item>
+                  <widget class="QLabel" name="lblN5OriginalImage">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>150</width>
+                     <height>150</height>
+                    </size>
+                   </property>
+                   <property name="frameShape">
+                    <enum>QFrame::Shape::Box</enum>
+                   </property>
+                   <property name="frameShadow">
+                    <enum>QFrame::Shadow::Sunken</enum>
+                   </property>
+                   <property name="text">
+                    <string>Chưa có ảnh</string>
+                   </property>
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignCenter</set>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lblN5OriginalInfo">
+                   <property name="text">
+                    <string>File: -- | Kích thước: --</string>
+                   </property>
+                   <property name="wordWrap">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
                </widget>
               </item>
               <item>
-               <widget class="QLabel" name="lblVisibleInfo">
-                <property name="text">
-                 <string>Đường dẫn: -- | Kích thước: --</string>
+               <widget class="QGroupBox" name="grpN5Enhanced">
+                <property name="title">
+                 <string>Ảnh Tăng cường N5 (Enhanced)</string>
                 </property>
-                <property name="wordWrap">
-                 <bool>true</bool>
-                </property>
+                <layout class="QVBoxLayout" name="n5EnhLayout">
+                 <item>
+                  <widget class="QLabel" name="lblN5EnhancedImage">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>150</width>
+                     <height>150</height>
+                    </size>
+                   </property>
+                   <property name="frameShape">
+                    <enum>QFrame::Shape::Box</enum>
+                   </property>
+                   <property name="frameShadow">
+                    <enum>QFrame::Shadow::Sunken</enum>
+                   </property>
+                   <property name="text">
+                    <string>Bấm 'Áp dụng tăng cường (N5)' để xử lý</string>
+                   </property>
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignCenter</set>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lblN5EnhancedInfo">
+                   <property name="text">
+                    <string>Thời gian: -- | Trạng thái: Chưa chạy</string>
+                   </property>
+                   <property name="wordWrap">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
                </widget>
               </item>
              </layout>
-            </widget>
-           </item>
-           <item>
-            <widget class="QGroupBox" name="grpThermalImage">
-             <property name="title">
-              <string>Ảnh Nhiệt / Hồng ngoại (Thermal - A2)</string>
-             </property>
-             <layout class="QVBoxLayout" name="thermalFrameLayout">
-              <item>
-               <widget class="QLabel" name="lblThermalImage">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>150</width>
-                  <height>150</height>
-                 </size>
-                </property>
-                <property name="frameShape">
-                 <enum>QFrame::Shape::Box</enum>
-                </property>
-                <property name="frameShadow">
-                 <enum>QFrame::Shadow::Sunken</enum>
-                </property>
-                <property name="text">
-                 <string>Chưa có ảnh nhiệt</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignmentFlag::AlignCenter</set>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QLabel" name="lblThermalInfo">
-                <property name="text">
-                 <string>Đường dẫn: -- | Kích thước: --</string>
-                </property>
-                <property name="wordWrap">
-                 <bool>true</bool>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-          </layout>
-         </item>
-        </layout>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="grpN5Controls">
+              <property name="maximumSize">
+               <size>
+                <width>260</width>
+                <height>16777215</height>
+               </size>
+              </property>
+              <property name="title">
+               <string>Bảng điều khiển N5</string>
+              </property>
+              <layout class="QVBoxLayout" name="n5ControlsLayout">
+               <item>
+                <widget class="QLabel" name="lblN5TargetLabel">
+                 <property name="font">
+                  <font>
+                   <bold>true</bold>
+                  </font>
+                 </property>
+                 <property name="text">
+                  <string>Kênh áp dụng:</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QRadioButton" name="radN5Thermal">
+                 <property name="text">
+                  <string>Thermal (A2 - Khuyến nghị)</string>
+                 </property>
+                 <property name="checked">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QRadioButton" name="radN5Visible">
+                 <property name="text">
+                  <string>Visible (A1)</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="Line" name="lineN5Separator">
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Horizontal</enum>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btnApplyN5">
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>34</height>
+                  </size>
+                 </property>
+                 <property name="font">
+                  <font>
+                   <bold>true</bold>
+                  </font>
+                 </property>
+                 <property name="text">
+                  <string>Áp dụng tăng cường (N5)</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btnResetN5">
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>28</height>
+                  </size>
+                 </property>
+                 <property name="text">
+                  <string>Khôi phục ảnh gốc</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QProgressBar" name="prgN5">
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>12</height>
+                  </size>
+                 </property>
+                 <property name="value">
+                  <number>0</number>
+                 </property>
+                 <property name="textVisible">
+                  <bool>false</bool>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="spacerN5Controls">
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Vertical</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>20</width>
+                   <height>40</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+               <item>
+                <widget class="QLabel" name="lblN5Note">
+                 <property name="text">
+                  <string>Ghi chú: Thuật toán N5 chạy trên worker thread (~200ms). Resize và đổi tab chỉ vẽ lại từ bộ đệm (cache), không chạy lại thuật toán.</string>
+                 </property>
+                 <property name="wordWrap">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tabRegistration">
+         <attribute name="title">
+          <string>3. Căn chỉnh (Phase 3)</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="tabRegLayout">
+          <item>
+           <widget class="QLabel" name="lblRegNotice">
+            <property name="font">
+             <font>
+              <bold>true</bold>
+             </font>
+            </property>
+            <property name="styleSheet">
+             <string>background-color: #2b2518; color: #E5A93C; padding: 10px; border-radius: 6px; border: 1px solid #7c5b1c;</string>
+            </property>
+            <property name="text">
+             <string>[EXPERIMENTAL PLACEHOLDER] Giao diện Kiểm tra Căn chỉnh (Registration / Alignment)
+Thuật toán so khớp điểm đặc trưng (Matcher) và ma trận Homography đang được nghiên cứu tại Python Phase 3.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="grpRegPreview">
+            <property name="title">
+             <string>So sánh Chồng hình Trực quan (Overlay Blend)</string>
+            </property>
+            <layout class="QVBoxLayout" name="regPreviewLayout">
+             <item>
+              <widget class="QLabel" name="lblRegImage">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>200</width>
+                 <height>200</height>
+                </size>
+               </property>
+               <property name="frameShape">
+                <enum>QFrame::Shape::Box</enum>
+               </property>
+               <property name="frameShadow">
+                <enum>QFrame::Shadow::Sunken</enum>
+               </property>
+               <property name="text">
+                <string>Chưa chọn cặp ảnh hoặc thuật toán Matcher chưa khả dụng trong C++</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignmentFlag::AlignCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="regControlLayout">
+               <item>
+                <widget class="QLabel" name="lblAlphaSlider">
+                 <property name="text">
+                  <string>Độ trong suốt chồng hình (Alpha Blend):</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QSlider" name="sldRegAlpha">
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Horizontal</enum>
+                 </property>
+                 <property name="minimum">
+                  <number>0</number>
+                 </property>
+                 <property name="maximum">
+                  <number>100</number>
+                 </property>
+                 <property name="value">
+                  <number>50</number>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QCheckBox" name="chkRegCheckerboard">
+                 <property name="text">
+                  <string>Lưới so lệch (Checkerboard)</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tabFusion">
+         <attribute name="title">
+          <string>4. Hợp nhất (Phase 4)</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="tabFusionLayout">
+          <item>
+           <widget class="QLabel" name="lblFusionNotice">
+            <property name="font">
+             <font>
+              <bold>true</bold>
+             </font>
+            </property>
+            <property name="styleSheet">
+             <string>background-color: #1a2733; color: #4B8DFF; padding: 10px; border-radius: 6px; border: 1px solid #224b7a;</string>
+            </property>
+            <property name="text">
+             <string>[EXPERIMENTAL PLACEHOLDER] Giao diện Thử nghiệm Hợp nhất Đa phổ (Visual-Thermal Fusion)
+Các phương pháp hợp nhất đang trong quá trình đánh giá và nghiệm thu khoa học trước khi port sang C++.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lblFusionCanvas">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>200</width>
+              <height>200</height>
+             </size>
+            </property>
+            <property name="frameShape">
+             <enum>QFrame::Shape::Box</enum>
+            </property>
+            <property name="frameShadow">
+             <enum>QFrame::Shadow::Sunken</enum>
+            </property>
+            <property name="text">
+             <string>Khung hiển thị kết quả Hợp nhất (Sẽ hiển thị khi có thuật toán C++)</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tabEvaluation">
+         <attribute name="title">
+          <string>5. Báo cáo &amp; Quyết định (Phase 5/6)</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="tabEvalLayout">
+          <item>
+           <widget class="QLabel" name="lblEvalNotice">
+            <property name="font">
+             <font>
+              <bold>true</bold>
+             </font>
+            </property>
+            <property name="styleSheet">
+             <string>background-color: #172b26; color: #39BDA7; padding: 10px; border-radius: 6px; border: 1px solid #1f5c4f;</string>
+            </property>
+            <property name="text">
+             <string>[TELEMETRY &amp; EVALUATION] Đánh giá Chất lượng Hợp nhất &amp; Tuyến Định tuyến (Route Selection)
+Đang chờ pipeline tích hợp các tuyến R_V, R_T, R_F, R_RF và bộ chỉ số đo lường hiệu năng thời gian thực.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lblEvalCanvas">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>200</width>
+              <height>200</height>
+             </size>
+            </property>
+            <property name="frameShape">
+             <enum>QFrame::Shape::Box</enum>
+            </property>
+            <property name="frameShadow">
+             <enum>QFrame::Shadow::Sunken</enum>
+            </property>
+            <property name="text">
+             <string>Bảng chỉ số chất lượng &amp; Telemetry chi phí tính toán</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
        </widget>
       </item>
      </layout>
