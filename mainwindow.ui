@@ -699,16 +699,6 @@
                  </property>
                 </spacer>
                </item>
-               <item>
-                <widget class="QLabel" name="lblN5Note">
-                 <property name="text">
-                  <string>Ghi chú: Thuật toán N5 chạy trên worker thread (~200ms). Resize và đổi tab chỉ vẽ lại từ bộ đệm (cache), không chạy lại thuật toán.</string>
-                 </property>
-                 <property name="wordWrap">
-                  <bool>true</bool>
-                 </property>
-                </widget>
-               </item>
               </layout>
              </widget>
             </item>
@@ -785,9 +775,6 @@ Thuật toán so khớp điểm đặc trưng (Matcher) và ma trận Homography
                </item>
                <item>
                 <widget class="QSlider" name="sldRegAlpha">
-                 <property name="orientation">
-                  <enum>Qt::Orientation::Horizontal</enum>
-                 </property>
                  <property name="minimum">
                   <number>0</number>
                  </property>
@@ -796,6 +783,9 @@ Thuật toán so khớp điểm đặc trưng (Matcher) và ma trận Homography
                  </property>
                  <property name="value">
                   <number>50</number>
+                 </property>
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Horizontal</enum>
                  </property>
                 </widget>
                </item>
