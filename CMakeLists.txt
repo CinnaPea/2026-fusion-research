@@ -45,6 +45,52 @@ set(
         "Native-image Python N5 parity fixture directory"
 )
 
+option(
+        QART_BUILD_RUNTIME_PROFILE
+        "Build the Phase 2 thermal processing profiler"
+        OFF
+)
+
+if(QART_BUILD_RUNTIME_PROFILE)
+    add_executable(profile_phase2_thermal
+            tools/profile_phase2_thermal.cpp
+            src/application/application_controller.cpp
+    )
+
+    target_link_libraries(profile_phase2_thermal
+            PRIVATE
+            qart_core
+            ${OpenCV_LIBS}
+    )
+    add_executable(profile_phase2_n5_stages
+            tools/profile_phase2_n5_stages.cpp
+    )
+
+    target_link_libraries(profile_phase2_n5_stages
+            PRIVATE
+            qart_core
+            ${OpenCV_LIBS}
+    )
+endif()
+
+#option(
+#        QART_BUILD_LEGACY_COMPARISON
+#        "Build the saved legacy-output versus accepted N5 comparison"
+#        OFF
+#)
+#
+#if(QART_BUILD_LEGACY_COMPARISON)
+#    add_executable(compare_n5_legacy
+#            tools/compare_n5_legacy.cpp
+#    )
+#
+#    target_link_libraries(compare_n5_legacy
+#            PRIVATE
+#            qart_core
+#            ${OpenCV_LIBS}
+#    )
+#endif()
+
 # ---------------------------------------------------------------------------
 # QART-Fusion Qt-independent core
 # ---------------------------------------------------------------------------

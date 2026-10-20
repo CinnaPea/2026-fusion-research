@@ -9,8 +9,34 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <array>
+#include <cstddef>
 
 namespace qart::core::enhancement {
+
+    // Engineering Decision — not paper-derived.
+    // Diagnostic timing only; no scientific behavior changes.
+    enum class N5Stage : std::size_t
+    {
+        InputValidation,
+        UnitNormalize,
+        UnitGuided7,
+        BaseQuantize,
+        Clahe,
+        UnitReconstructQuantize,
+        PostNormalize,
+        PostGuided3,
+        PostReconstructQuantize,
+        Count
+    };
+
+    struct N5StageTimings
+    {
+        std::array<
+            double,
+            static_cast<std::size_t>(N5Stage::Count)
+        > milliseconds{};
+    };
 
     struct N5EnhancementResult
     {
@@ -38,7 +64,7 @@ namespace qart::core::enhancement {
         // Output: independently owned CV_8UC1, same geometry.
         // Input is never modified.
         [[nodiscard]]
-        N5EnhancementResult enhance(const cv::Mat& plane);
+        N5EnhancementResult enhance(const cv::Mat& plane, N5StageTimings* timings = nullptr);
 
     private:
         cv::Ptr<cv::CLAHE> clahe_;

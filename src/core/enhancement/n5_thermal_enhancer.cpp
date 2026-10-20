@@ -8,6 +8,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <utility>
+#include <chrono>
 
 namespace qart::core::enhancement {
 namespace {
@@ -203,6 +204,41 @@ GuidedBaseResult guidedBase(
     return {std::move(base), epsilon};
 }
 
+    class StageClock final
+    {
+    public:
+        explicit StageClock(N5StageTimings* timings)
+            : timings_(timings)
+        {
+            if (timings_) {
+                timings_->milliseconds.fill(0.0);
+                previous_ = Clock::now();
+            }
+        }
+
+        void mark(N5Stage stage)
+        {
+            if (!timings_) {
+                return;
+            }
+
+            const auto now = Clock::now();
+
+            timings_->milliseconds[
+                static_cast<std::size_t>(stage)
+            ] = std::chrono::duration<double, std::milli>(
+                now - previous_
+            ).count();
+
+            previous_ = now;
+        }
+
+    private:
+        using Clock = std::chrono::steady_clock;
+
+        N5StageTimings* timings_;
+        Clock::time_point previous_{};
+    };
 } // namespace
 
 N5ThermalEnhancer::N5ThermalEnhancer()
@@ -211,8 +247,10 @@ N5ThermalEnhancer::N5ThermalEnhancer()
 }
 
 N5EnhancementResult N5ThermalEnhancer::enhance(
-    const cv::Mat& plane)
+    const cv::Mat& plane,
+    N5StageTimings* timings)
 {
+    StageClock profile(timings);
     validateInput(plane);
 
     double minimum = 0.0;
@@ -221,6 +259,7 @@ N5EnhancementResult N5ThermalEnhancer::enhance(
 
     const bool constant = minimum == maximum;
     cv::Mat unitUint8;
+    profile.mark(N5Stage::InputValidation);
 
     if (constant) {
         // UNIT preserves constant inputs before its CLAHE stage.
@@ -228,14 +267,19 @@ N5EnhancementResult N5ThermalEnhancer::enhance(
     }
     else {
         const cv::Mat source = normalizeUint8(plane);
+        profile.mark(N5Stage::UnitNormalize);
+
         const GuidedBaseResult decomposition =
             guidedBase(source, 7);
+        profile.mark(N5Stage::UnitGuided7);
 
         const cv::Mat baseUint8 =
             quantizeUint8(decomposition.image);
+        profile.mark(N5Stage::BaseQuantize);
 
         cv::Mat mappedUint8;
         clahe_->apply(baseUint8, mappedUint8);
+        profile.mark(N5Stage::Clahe);
 
         const cv::Mat mapped = normalizeUint8(mappedUint8);
         cv::Mat reconstructed(
@@ -261,9 +305,12 @@ N5EnhancementResult N5ThermalEnhancer::enhance(
         // Required intermediate UNIT uint8 boundary.
         unitUint8 = quantizeUint8(reconstructed);
     }
+    profile.mark(N5Stage::UnitReconstructQuantize);
 
     const cv::Mat unit = normalizeUint8(unitUint8);
+    profile.mark(N5Stage::PostNormalize);
     const GuidedBaseResult small = guidedBase(unit, 3);
+    profile.mark(N5Stage::PostGuided3);
 
     cv::Mat reconstructed(
         plane.rows, plane.cols, CV_64FC1
@@ -289,6 +336,7 @@ N5EnhancementResult N5ThermalEnhancer::enhance(
     if (constant) {
         output = plane.clone();
     }
+    profile.mark(N5Stage::PostReconstructQuantize);
 
     return {
         std::move(output),
