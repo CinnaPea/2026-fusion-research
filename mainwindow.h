@@ -73,6 +73,7 @@ private slots:
     // Tab and N5 enhancement slots
     void onWorkspaceTabChanged(int index);
     void onApplyN5Clicked();
+    void onEnhanceAllClicked();
     void onResetN5Clicked();
     void onN5Finished(const QString &pairId, const QPixmap &enhancedPixmap, qint64 elapsedMs);
 
@@ -109,6 +110,7 @@ private:
 
     // N5 state & caching members
     N5UiState n5State_ = N5UiState::Idle;
+    bool isBatchEnhancing_ = false;
     QPixmap cachedN5OriginalPixmap_;
     QPixmap cachedN5EnhancedPixmap_;
     QString activeN5PairId_;

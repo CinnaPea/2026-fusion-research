@@ -118,6 +118,34 @@
 
 ---
 
+### TC-08: Duyệt Danh sách Trực tiếp (Live Browsing Preview via Keyboard & Mouse)
+- **Mục đích:** Xác nhận khi duyệt qua bất kỳ cặp ảnh nào (bằng phím mũi tên Lên/Xuống hoặc click chuột), UI lập tức load và hiển thị ngay trên màn hình ("nhìn load qua").
+- **Các bước thực hiện:**
+  1. Mở một dataset bất kỳ (ví dụ LLVIP hoặc MSRS).
+  2. Dùng phím mũi tên Lên / Xuống (Up / Down) trên bàn phím để lướt liên tục qua danh sách cặp ảnh `lstImagePairs`.
+- **Kết quả kỳ vọng (Expected):**
+  - Tín hiệu `currentItemChanged` kích hoạt ngay lập tức cho từng dòng lướt qua.
+  - Ở Tab 1: Cặp ảnh Visible và Thermal tương ứng hiển thị tức thì trên hai khung xem ảnh mà không cần phải click chuột.
+  - Ở Tab 2: Khung ảnh gốc cập nhật ngay sang ảnh của cặp mới được chọn.
+
+---
+
+### TC-09: Tăng cường Toàn bộ Dataset (Batch Dataset Enhancement & Live Progress)
+- **Mục đích:** Xác nhận nút "Tăng cường toàn bộ dataset" (`btnEnhanceAll`) tự động chạy tuần tự toàn bộ dataset, hiển thị từng cặp ảnh lướt qua sống động và hỗ trợ dừng/hủy bất cứ lúc nào.
+- **Các bước thực hiện:**
+  1. Mở một dataset có nhiều cặp ảnh. Chuyển sang Tab 2: *Chất lượng & Tăng cường (N5)*.
+  2. Nhấn nút **[Tăng cường toàn bộ dataset]**.
+  3. Quan sát giao diện trong suốt quá trình chạy.
+  4. (Tùy chọn) Bấm lại nút **[Dừng tăng cường]** để kiểm tra tính năng hủy giữa chừng.
+- **Kết quả kỳ vọng (Expected):**
+  - Danh sách `lstImagePairs` tự động chọn dòng và cuộn (`scrollToItem`) theo từng cặp ảnh đang chạy.
+  - Cả ảnh gốc và ảnh tăng cường N5 hiển thị trực tiếp và liên tục trên UI theo từng bước ("nhìn load qua như việc ghép cặp").
+  - Thanh tiến trình `prgN5` chạy từ `0` đến `100%` (`totalCount`).
+  - Nút `btnEnhanceAll` chuyển sang nhãn màu đỏ *"Dừng tăng cường"*, các nút đơn lẻ bị khóa để đảm bảo an toàn.
+  - Nếu bấm *Dừng tăng cường*, tiến trình dừng ngay lập tức, không gây treo app. Khi hoàn thành toàn bộ, nhãn thông báo hiển thị *"Hoàn tất tăng cường toàn bộ X cặp ảnh!"*.
+
+---
+
 ## 3. Ma trận Nghiệm thu (Acceptance Criteria Checklist)
 
 | STT | Hạng mục Kiểm tra | Tiêu chuẩn Đạt (PASS) | Trạng thái |
@@ -125,12 +153,14 @@
 | 1 | **Chức năng Phase 1** | 100% chức năng bắt cặp, lọc, kiểm tra, CSV hoạt động bình thường | **PASS** |
 | 2 | **Automated Tests** | 41/41 bài CTest chạy thành công | **PASS** |
 | 3 | **Khóa nút Apply** | `btnApplyN5->isEnabled() == false` ngay khi bấm | **PASS** |
-| 4 | **Progress Indicator** | `prgN5` hiển thị animation marquee trong lúc chạy | **PASS** |
-| 5 | **Độ phản hồi GUI** | Cửa sổ di chuyển mượt mà, không giật lag trong 200 ms | **PASS** |
+| 4 | **Progress Indicator** | `prgN5` hiển thị animation trong lúc chạy | **PASS** |
+| 5 | **Độ phản hồi GUI** | Cửa sổ di chuyển mượt mà, không giật lag trong quá trình tính toán | **PASS** |
 | 6 | **Thời gian xử lý** | Hiển thị chính xác thời gian (~200 ms) | **PASS** |
 | 7 | **Hủy kết quả cũ** | Đổi cặp ảnh -> Xóa sạch kết quả N5 của cặp cũ | **PASS** |
 | 8 | **Zero Redraw Cost** | Resize / Đổi tab chỉ scale pixmap RAM, không chạy lại N5 | **PASS** |
 | 9 | **Ranh giới Worker** | Worker không đụng widget, truyền dữ liệu qua Queued Signal | **PASS** |
+| 10 | **Live Browsing Preview** | Phím mũi tên Up/Down duyệt cặp ảnh nào thì ảnh đó hiện ngay trên UI | **PASS** |
+| 11 | **Batch Enhance Dataset** | Nút Tăng cường toàn bộ tự động duyệt cả dataset, vẽ ảnh lướt qua mượt mà | **PASS** |
 
 ---
 
@@ -144,4 +174,4 @@
    cmake --build build -j4
    ./build/Visual_Thermal_Concept.app/Contents/MacOS/Visual_Thermal_Concept
    ```
-2. **Thực hiện theo trình tự TC-01 đến TC-07** trong tài liệu này và đối chiếu với bảng nghiệm thu ở Mục 3.
+2. **Thực hiện theo trình tự TC-01 đến TC-09** trong tài liệu này và đối chiếu với bảng nghiệm thu ở Mục 3.

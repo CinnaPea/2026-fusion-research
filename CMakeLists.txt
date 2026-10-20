@@ -218,6 +218,7 @@ qt_add_executable(Visual_Thermal_Concept
 target_include_directories(Visual_Thermal_Concept
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${OpenCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(Visual_Thermal_Concept
@@ -225,6 +226,7 @@ target_link_libraries(Visual_Thermal_Concept
         qart_core
         Qt::Core
         Qt::Widgets
+        ${OpenCV_LIBS}
 )
 
 

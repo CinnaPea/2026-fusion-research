@@ -658,6 +658,24 @@
                 </widget>
                </item>
                <item>
+                <widget class="QPushButton" name="btnEnhanceAll">
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                 <property name="font">
+                  <font>
+                   <bold>true</bold>
+                  </font>
+                 </property>
+                 <property name="text">
+                  <string>Tăng cường toàn bộ dataset</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
                 <widget class="QPushButton" name="btnResetN5">
                  <property name="minimumSize">
                   <size>
