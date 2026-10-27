@@ -213,6 +213,10 @@ qt_add_executable(Visual_Thermal_Concept
 
         src/application/application_controller.cpp
         src/application/application_controller.h
+        src/application/interactive_image_viewer.cpp
+        src/application/interactive_image_viewer.h
+        src/application/enhance_worker.cpp
+        src/application/enhance_worker.h
 )
 
 target_include_directories(Visual_Thermal_Concept
