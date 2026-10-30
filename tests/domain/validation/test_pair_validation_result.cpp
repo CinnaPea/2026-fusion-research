@@ -150,6 +150,10 @@ int main()
         return 2;
     }
 
+    if (!validResult.sourcePairValid()) {
+        return 101;
+    }
+
     if (!validResult.visibleDecoded()) {
         return 3;
     }
@@ -198,6 +202,10 @@ int main()
         return 11;
     }
 
+    if (missingVisible.sourcePairValid()) {
+        return 102;
+    }
+
     const PairValidationResult mismatch(
         makePair(),
         PairValidationStatus::DimensionMismatch,
@@ -213,6 +221,10 @@ int main()
 
     if (mismatch.dimensionsMatch()) {
         return 13;
+    }
+
+    if (!mismatch.sourcePairValid()) {
+        return 103;
     }
 
     if (
