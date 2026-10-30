@@ -74,6 +74,12 @@ namespace qart::core::domain::validation {
             && visibleDimensions_ == thermalDimensions_;
     }
 
+    bool PairValidationResult::sourcePairValid() const noexcept
+    {
+        return status_ == PairValidationStatus::Valid
+            || status_ == PairValidationStatus::DimensionMismatch;
+    }
+
     bool PairValidationResult::isValid() const noexcept
     {
         return status_ == PairValidationStatus::Valid;
