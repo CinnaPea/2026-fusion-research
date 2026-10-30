@@ -168,6 +168,7 @@ void MainWindow::setupUiControls()
     ui->cbDatasetSelect->addItem("RoadScene Dataset", "roadscene");
     ui->cbDatasetSelect->addItem("M3FD Dataset", "m3fd");
     ui->cbDatasetSelect->addItem("TNO Dataset", "tno");
+    ui->cbDatasetSelect->addItem("DVTOD Dataset", "dvtod");
 
     // Partition combo box items
     ui->cbPartitionSelect->clear();
@@ -219,7 +220,7 @@ void MainWindow::onBrowseDatasetClicked()
     try {
         const QString selectedDir = QFileDialog::getExistingDirectory(
             this,
-            "Chọn thư mục bộ dữ liệu (LLVIP, MSRS, RoadScene, M3FD, TNO...)",
+            "Chọn thư mục bộ dữ liệu (LLVIP, MSRS, RoadScene, M3FD, TNO, DVTOD...)",
             ui->txtDatasetDir->text().isEmpty() ? QDir::homePath() : ui->txtDatasetDir->text()
         );
 
@@ -266,7 +267,7 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
                 "Không nhận diện được Dataset",
                 QString(
                     "Không thể nhận diện tập dữ liệu chuẩn "
-                    "(LLVIP, MSRS, RoadScene, M3FD, TNO) tại đường dẫn:\n%1\n\n"
+                    "(LLVIP, MSRS, RoadScene, M3FD, TNO, DVTOD) tại đường dẫn:\n%1\n\n"
                     "Vui lòng kiểm tra lại cấu trúc thư mục chứa "
                     "các tập dữ liệu chuẩn!"
                 ).arg(dirPath)
@@ -307,6 +308,16 @@ void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
             );
             ui->cbPartitionSelect->addItem(
                 "test", "test"
+            );
+        } else if (currentDatasetId == "dvtod") {
+            ui->cbPartitionSelect->addItem(
+                "Tất cả Partition", ""
+            );
+            ui->cbPartitionSelect->addItem(
+                "train", "train"
+            );
+            ui->cbPartitionSelect->addItem(
+                "val", "val"
             );
         } else if (
             currentDatasetId == "roadscene"
@@ -374,6 +385,20 @@ void MainWindow::applyFiltersAndModes()
 
         // 2. Filter by View Mode
         QString viewMode = ui->cbViewMode->currentData().toString();
+
+        if (
+            appController_.currentDatasetId() == "dvtod"
+            && (
+                viewMode == "sample"
+                || viewMode == "queue"
+            )
+        ) {
+            throw std::runtime_error(
+                "DVTOD raw pairs are source-valid but not same-geometry VALID. "
+                "Standard Mode B/C is intentionally unavailable before "
+                "Phase 3 registration."
+            );
+        }
 
         if (viewMode == "full") {
             // Mode A: Full Dataset View
@@ -717,7 +742,7 @@ void MainWindow::onSelectSingleImageClicked()
                 "Không nhận diện được Dataset",
                 QString(
                     "Tập tin ảnh '%1' không thuộc các bộ dữ liệu "
-                    "được hỗ trợ (LLVIP, MSRS, RoadScene, M3FD, TNO)."
+                    "được hỗ trợ (LLVIP, MSRS, RoadScene, M3FD, TNO, DVTOD)."
                 ).arg(
                     QString::fromStdString(
                         filePath.filename().string()
@@ -817,6 +842,19 @@ void MainWindow::onSelectSingleImageClicked()
                 ui->cbPartitionSelect->addItem(
                     "test",
                     "test"
+                );
+            } else if (datasetId == "dvtod") {
+                ui->cbPartitionSelect->addItem(
+                    "Tất cả Partition",
+                    ""
+                );
+                ui->cbPartitionSelect->addItem(
+                    "train",
+                    "train"
+                );
+                ui->cbPartitionSelect->addItem(
+                    "val",
+                    "val"
                 );
             } else {
                 ui->cbPartitionSelect->addItem(
@@ -1194,7 +1232,7 @@ QString MainWindow::getStatusDescription(PairValidationStatus status) {
         case PairValidationStatus::ThermalDecodeFailed:
             return "Không thể giải mã dữ liệu ảnh nhiệt bằng OpenCV.";
         case PairValidationStatus::DimensionMismatch:
-            return "CẢNH BÁO: Kích thước pixel ảnh Màu và ảnh Nhiệt không khớp nhau.";
+            return "CẢNH BÁO: Cả hai ảnh nguồn giải mã được nhưng không cùng hình học pixel. Cặp nguồn chưa sẵn sàng cho xử lý yêu cầu cùng kích thước; cần căn chỉnh/đăng ký nếu pipeline yêu cầu.";
         case PairValidationStatus::UnexpectedVisibleDimensions:
             return "Kích thước ảnh màu không đúng với độ phân giải tiêu chuẩn của bộ dữ liệu.";
         case PairValidationStatus::UnexpectedThermalDimensions:
