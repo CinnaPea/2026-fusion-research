@@ -5,6 +5,7 @@
 #include "core/datasets/roadscene_adapter.h"
 #include "core/datasets/m3fd_adapter.h"
 #include "core/datasets/tno_adapter.h"
+#include "core/datasets/dvtod_adapter.h"
 #include "core/domain/datasets/dataset_partition_id.h"
 #include "core/domain/imaging/image_dimensions.h"
 #include "core/manifests/csv_validation_manifest_reader.h"
@@ -204,6 +205,31 @@ bool ApplicationController::loadDataset(
             }
     }
 
+    if (
+        discoveredPairs.empty()
+        && (
+            requestedDatasetId.empty()
+            || requestedDatasetId == "dvtod"
+        )
+    ) {
+        try {
+            core::datasets::DVTODAdapter adapter;
+
+            discoveredPairs =
+                discoverWithAdapter(
+                    adapter,
+                    datasetRoot_
+                );
+
+            detectedDatasetId =
+                adapter.datasetId();
+        }
+        catch (...) {
+            discoveredPairs.clear();
+            detectedDatasetId.clear();
+        }
+    }
+
     if (discoveredPairs.empty()) {
         clearDatasetSession();
         datasetRoot_ = resolveDatasetRoot(inputPath);
@@ -248,6 +274,15 @@ bool ApplicationController::loadDataset(
 
         configuredPartitions = {
             DatasetPartitionId("all")
+        };
+    } else if (detectedDatasetId == "dvtod") {
+        manifestRelativePath =
+            "manifests/dvtod/"
+            "dvtod_validation_schema_2_0.csv";
+
+        configuredPartitions = {
+            DatasetPartitionId("train"),
+            DatasetPartitionId("val")
         };
     } else {
         throw std::runtime_error(
@@ -348,6 +383,8 @@ std::filesystem::path ApplicationController::resolveDatasetRoot(
         || folderName == "roadscene"
         || folderName == "m3fd"
         || folderName == "tno"
+        || folderName == "dvtdo"
+        || folderName == "dvtod"
     ) {
         if (current.has_parent_path()) {
             const std::filesystem::path parent = current.parent_path();
@@ -402,6 +439,19 @@ PairValidationPolicy ApplicationController::validationPolicyForDataset(
             supportedExtensions,
             core::domain::imaging::ImageDimensions(640, 480),
             core::domain::imaging::ImageDimensions(640, 480)
+        };
+    }
+
+    if (datasetId == "dvtod") {
+        const std::vector<std::string> jpgOnly = {
+            ".jpg"
+        };
+
+        return {
+            jpgOnly,
+            jpgOnly,
+            core::domain::imaging::ImageDimensions(1920, 1080),
+            core::domain::imaging::ImageDimensions(640, 512)
         };
     }
 
@@ -718,6 +768,9 @@ void ApplicationController::loadCanonicalValidationManifest()
                 || candidate == "tno"
             ) {
                 detectedDataset = candidate;
+            }
+            else if (candidate == "dvtdo") {
+                detectedDataset = "dvtod";
             }
         }
 
