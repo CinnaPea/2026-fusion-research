@@ -44,7 +44,7 @@
          <item>
           <widget class="QLineEdit" name="txtDatasetDir">
            <property name="placeholderText">
-            <string>Chọn thư mục chứa bộ dữ liệu (LLVIP, MSRS, RoadScene, M3FD, TNO...)...</string>
+            <string>Chọn thư mục chứa bộ dữ liệu (LLVIP, MSRS, RoadScene, M3FD, TNO, DVTOD...)...</string>
            </property>
           </widget>
          </item>
