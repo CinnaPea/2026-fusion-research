@@ -6,7 +6,46 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
-find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc)
+
+set(
+        QART_OPENCV5_DIR
+        "C:/msys64/ucrt64/lib/cmake/opencv5"
+        CACHE PATH
+        "Authoritative OpenCV 5 CMake package directory for QART-Fusion"
+)
+
+if(NOT EXISTS "${QART_OPENCV5_DIR}/OpenCVConfig.cmake")
+    message(
+            FATAL_ERROR
+            "QART OpenCV 5 configuration not found at: "
+            "${QART_OPENCV5_DIR}"
+    )
+endif()
+
+find_package(
+        OpenCV 5
+        CONFIG
+        REQUIRED
+        COMPONENTS core imgcodecs imgproc
+        PATHS "${QART_OPENCV5_DIR}"
+        NO_DEFAULT_PATH
+)
+
+if(
+        OpenCV_VERSION VERSION_LESS "5.0.0"
+        OR OpenCV_VERSION VERSION_GREATER_EQUAL "6.0.0"
+)
+    message(
+            FATAL_ERROR
+            "QART-Fusion requires OpenCV 5.x, but CMake resolved "
+            "OpenCV ${OpenCV_VERSION} from ${OpenCV_DIR}"
+    )
+endif()
+
+message(STATUS "QART OpenCV version: ${OpenCV_VERSION}")
+message(STATUS "QART OpenCV config: ${OpenCV_DIR}")
+message(STATUS "QART OpenCV includes: ${OpenCV_INCLUDE_DIRS}")
+
 find_package(nlohmann_json CONFIG REQUIRED)
 
 qt_standard_project_setup()
@@ -149,6 +188,9 @@ add_library(qart_core STATIC
 
         src/core/datasets/tno_adapter.cpp
         src/core/datasets/tno_adapter.h
+
+        src/core/datasets/dvtod_adapter.cpp
+        src/core/datasets/dvtod_adapter.h
 
         src/core/visualization/preview_selection.cpp
         src/core/visualization/preview_selection.h
@@ -732,6 +774,22 @@ if(BUILD_TESTING)
             COMMAND test_tno_adapter
     )
 
+    add_executable(
+            test_dvtod_adapter
+            tests/datasets/test_dvtod_adapter.cpp
+    )
+
+    target_link_libraries(
+            test_dvtod_adapter
+            PRIVATE
+            qart_core
+    )
+
+    add_test(
+            NAME DVTODAdapterContract
+            COMMAND test_dvtod_adapter
+    )
+
     add_executable(test_preview_selection
             tests/visualization/test_preview_selection.cpp
     )
@@ -1218,6 +1276,30 @@ if(BUILD_TESTING)
                 TNORealPreviewParity
                 PROPERTIES
                 LABELS "phase1;parity;real_data;tno;preview"
+        )
+
+        add_executable(
+                test_dvtod_real_parity
+                tests/parity/test_dvtod_real_parity.cpp
+        )
+
+        target_link_libraries(
+                test_dvtod_real_parity
+                PRIVATE
+                qart_core
+        )
+
+        add_test(
+                NAME DVTODRealDataParity
+                COMMAND
+                test_dvtod_real_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                DVTODRealDataParity
+                PROPERTIES
+                LABELS "phase1;phase1r;parity;real_data;dvtod"
         )
     endif()
 endif()
