@@ -61,10 +61,16 @@ InteractiveImageViewer::InteractiveImageViewer(QWidget *parent)
     placeholderText_ = tr("Chưa có ảnh");
 }
 
-void InteractiveImageViewer::setPixmap(const QPixmap &pixmap)
+void InteractiveImageViewer::setPixmap(const QPixmap &pixmap, bool preserveViewport)
 {
+    const bool sizeChanged = (pixmap_.isNull() || pixmap_.size() != pixmap.size());
     pixmap_ = pixmap;
-    fitToView();
+
+    if (!preserveViewport || sizeChanged || isFitToView_) {
+        fitToView();
+    } else {
+        update();
+    }
 }
 
 void InteractiveImageViewer::clearImage(const QString &placeholder)

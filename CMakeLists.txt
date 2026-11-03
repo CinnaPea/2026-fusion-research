@@ -7,9 +7,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
 
+if(WIN32)
+    set(QART_DEFAULT_OPENCV5_DIR "C:/msys64/ucrt64/lib/cmake/opencv5")
+elseif(APPLE)
+    set(QART_DEFAULT_OPENCV5_DIR "/opt/homebrew/Cellar/opencv/5.0.0/lib/cmake/opencv5")
+else()
+    set(QART_DEFAULT_OPENCV5_DIR "/usr/local/lib/cmake/opencv5")
+endif()
+
 set(
         QART_OPENCV5_DIR
-        "C:/msys64/ucrt64/lib/cmake/opencv5"
+        "${QART_DEFAULT_OPENCV5_DIR}"
         CACHE PATH
         "Authoritative OpenCV 5 CMake package directory for QART-Fusion"
 )

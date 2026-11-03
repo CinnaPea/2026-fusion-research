@@ -70,6 +70,7 @@ public:
     std::optional<Phase2SourceSelection> selectedPhase2Source() const;
 
 protected:
+    void closeEvent(QCloseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
 
 private slots:
@@ -95,25 +96,25 @@ private slots:
     void onResetN5Clicked();
 
     // Worker thread response slots
-    void onSingleWorkerFinished(const QString &pairId,
+    void onSingleWorkerFinished(const EnhanceJobRequest &request,
                                 const QImage &resultImage,
                                 qint64 elapsedMs,
                                 bool success,
-                                const QString &errorMessage,
-                                int mode);
+                                const QString &errorMessage);
 
     void onBatchStepFinished(int index,
-                             const QString &pairId,
+                             int totalCount,
+                             const EnhanceJobRequest &request,
                              const QImage &resultImage,
                              qint64 elapsedMs,
                              bool success,
                              const QString &errorMessage,
-                             int mode,
                              int successCount,
                              int errorCount,
+                             int skippedCount,
                              int cancelledCount);
 
-    void onBatchWorkerFinished(int successCount, int errorCount, int cancelledCount);
+    void onBatchWorkerFinished(int totalCount, int successCount, int errorCount, int skippedCount, int cancelledCount);
 
 private:
     void setupUiControls();
@@ -127,6 +128,7 @@ private:
     void setN5UiState(N5UiState state, qint64 elapsedMs = 0, const QString &detailMsg = QString());
     void renderCachedN5Images();
     void appendLog(const QString &message);
+    void updateBatchButtonText();
 
     [[nodiscard]]
     static QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status);
@@ -156,6 +158,8 @@ private:
     // Threading
     SingleEnhanceWorkerThread *singleWorker_ = nullptr;
     BatchEnhanceWorkerThread *batchWorker_ = nullptr;
+    quint64 currentSessionId_ = 0;
+    quint64 currentRequestId_ = 0;
 
     // Storage for Phase 2 results
     std::vector<Phase2Record> phase2Results_;

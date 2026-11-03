@@ -534,7 +534,7 @@
               <item>
                <widget class="QGroupBox" name="grpN5Original">
                 <property name="title">
-                 <string>Ảnh gốc (Thermal - A2)</string>
+                 <string>Ảnh IR nguồn</string>
                 </property>
                 <layout class="QVBoxLayout" name="n5OrigLayout">
                  <item>
@@ -569,7 +569,7 @@
               <item>
                <widget class="QGroupBox" name="grpN5Enhanced">
                 <property name="title">
-                 <string>Ảnh Kết quả (N5 / BYPASS)</string>
+                 <string>Kết quả xử lý (N5 / BYPASS)</string>
                 </property>
                 <layout class="QVBoxLayout" name="n5EnhLayout">
                  <item>
@@ -616,44 +616,20 @@
               </property>
               <layout class="QVBoxLayout" name="n5ControlsLayout">
                <item>
-                <widget class="QLabel" name="lblN5TargetLabel">
+                <widget class="QLabel" name="lblN5InputNotice">
                  <property name="font">
                   <font>
                    <bold>true</bold>
                   </font>
                  </property>
+                 <property name="styleSheet">
+                  <string notr="true">background-color: #1e2638; color: #72a1ed; padding: 6px; border-radius: 4px; border: 1px solid #2d3b58;</string>
+                 </property>
                  <property name="text">
-                  <string>Kênh áp dụng:</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QRadioButton" name="radN5Thermal">
-                 <property name="text">
-                  <string>Thermal (A2 - Khuyến nghị)</string>
-                 </property>
-                 <property name="checked">
-                  <bool>true</bool>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QRadioButton" name="radN5Visible">
-                 <property name="enabled">
-                  <bool>false</bool>
+                  <string>Đầu vào: Ảnh nhiệt</string>
                  </property>
                  <property name="toolTip">
-                  <string>Thuật toán N5 chỉ áp dụng cho ảnh nhiệt (Thermal/IR). Kênh Visible chỉ dùng để xem đối chiếu.</string>
-                 </property>
-                 <property name="text">
-                  <string>Visible (A1 - Chỉ xem đối chiếu)</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="Line" name="lineN5Separator">
-                 <property name="orientation">
-                  <enum>Qt::Orientation::Horizontal</enum>
+                  <string>Xử lý áp dụng độc quyền cho kênh ảnh nhiệt (Thermal/IR). Ảnh màu (Visible) dùng để đối chiếu trong pipeline hợp nhất.</string>
                  </property>
                 </widget>
                </item>
@@ -674,9 +650,6 @@
                  <property name="text">
                   <string>N5 Post-Half (Tăng cường)</string>
                  </property>
-                 <property name="checked">
-                  <bool>true</bool>
-                 </property>
                 </widget>
                </item>
                <item>
@@ -684,12 +657,18 @@
                  <property name="text">
                   <string>BYPASS (Đi qua trực tiếp)</string>
                  </property>
+                 <property name="checked">
+                  <bool>true</bool>
+                 </property>
                 </widget>
                </item>
                <item>
                 <widget class="QCheckBox" name="chkSyncView">
                  <property name="text">
-                  <string>Đồng bộ góc nhìn (Sync View)</string>
+                  <string>Đồng bộ thu phóng và kéo ảnh</string>
+                 </property>
+                 <property name="toolTip">
+                  <string>Tự động đồng bộ tỉ lệ thu phóng (zoom) và vị trí kéo (pan) giữa ảnh trước và sau khi xem chi tiết.</string>
                  </property>
                  <property name="checked">
                   <bool>true</bool>

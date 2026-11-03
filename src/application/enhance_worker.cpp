@@ -28,26 +28,32 @@ void SingleEnhanceWorkerThread::run()
     QElapsedTimer timer;
     timer.start();
 
+    if (isInterruptionRequested()) {
+        return;
+    }
+
     if (!std::filesystem::exists(request_.thermalFullPath)) {
-        emit jobFinished(request_.pairId,
+        emit jobFinished(request_,
                          QImage(),
                          0,
                          false,
                          QString("Không tìm thấy file ảnh nhiệt trên đĩa: %1")
-                             .arg(QString::fromStdString(request_.thermalFullPath.string())),
-                         static_cast<int>(request_.mode));
+                             .arg(QString::fromStdString(request_.thermalFullPath.string())));
         return;
     }
 
     cv::Mat raw = cv::imread(request_.thermalFullPath.string(), cv::IMREAD_UNCHANGED);
     if (raw.empty()) {
-        emit jobFinished(request_.pairId,
+        emit jobFinished(request_,
                          QImage(),
                          0,
                          false,
                          QString("Không thể giải mã dữ liệu ảnh nhiệt qua OpenCV: %1")
-                             .arg(QString::fromStdString(request_.thermalFullPath.filename().string())),
-                         static_cast<int>(request_.mode));
+                             .arg(QString::fromStdString(request_.thermalFullPath.filename().string())));
+        return;
+    }
+
+    if (isInterruptionRequested()) {
         return;
     }
 
@@ -66,30 +72,31 @@ void SingleEnhanceWorkerThread::run()
 
         const qint64 elapsedMs = timer.elapsed();
 
+        if (isInterruptionRequested()) {
+            return;
+        }
+
         if (outMat.empty() || outMat.type() != CV_8UC1) {
-            emit jobFinished(request_.pairId,
+            emit jobFinished(request_,
                              QImage(),
                              elapsedMs,
                              false,
-                             "Kết quả thuật toán rỗng hoặc sai định dạng pixel CV_8UC1.",
-                             static_cast<int>(request_.mode));
+                             "Kết quả thuật toán rỗng hoặc sai định dạng pixel CV_8UC1.");
             return;
         }
 
         QImage qImg(outMat.data, outMat.cols, outMat.rows, static_cast<int>(outMat.step), QImage::Format_Grayscale8);
-        emit jobFinished(request_.pairId,
+        emit jobFinished(request_,
                          qImg.copy(),
                          elapsedMs,
                          true,
-                         QString(),
-                         static_cast<int>(request_.mode));
+                         QString());
     } catch (const std::exception &ex) {
-        emit jobFinished(request_.pairId,
+        emit jobFinished(request_,
                          QImage(),
                          timer.elapsed(),
                          false,
-                         QString("Lỗi xử lý thuật toán: %1").arg(ex.what()),
-                         static_cast<int>(request_.mode));
+                         QString("Lỗi xử lý thuật toán: %1").arg(ex.what()));
     }
 }
 
@@ -120,6 +127,7 @@ void BatchEnhanceWorkerThread::run()
 {
     int successCount = 0;
     int errorCount = 0;
+    int skippedCount = 0;
     int cancelledCount = 0;
     const int total = static_cast<int>(requests_.size());
 
@@ -136,17 +144,34 @@ void BatchEnhanceWorkerThread::run()
         QElapsedTimer timer;
         timer.start();
 
+        if (job.isSkipped) {
+            skippedCount++;
+            emit jobStepFinished(i,
+                                 total,
+                                 job,
+                                 QImage(),
+                                 0,
+                                 false,
+                                 job.skipReason.isEmpty() ? "Bỏ qua (không đạt điều kiện kiểm định)" : job.skipReason,
+                                 successCount,
+                                 errorCount,
+                                 skippedCount,
+                                 cancelledCount);
+            continue;
+        }
+
         if (!std::filesystem::exists(job.thermalFullPath)) {
             errorCount++;
             emit jobStepFinished(i,
-                                 job.pairId,
+                                 total,
+                                 job,
                                  QImage(),
                                  0,
                                  false,
                                  QString("Không tìm thấy file: %1").arg(QString::fromStdString(job.thermalFullPath.filename().string())),
-                                 static_cast<int>(job.mode),
                                  successCount,
                                  errorCount,
+                                 skippedCount,
                                  cancelledCount);
             continue;
         }
@@ -155,14 +180,15 @@ void BatchEnhanceWorkerThread::run()
         if (raw.empty()) {
             errorCount++;
             emit jobStepFinished(i,
-                                 job.pairId,
+                                 total,
+                                 job,
                                  QImage(),
                                  0,
                                  false,
                                  QString("Không thể giải mã ảnh: %1").arg(QString::fromStdString(job.thermalFullPath.filename().string())),
-                                 static_cast<int>(job.mode),
                                  successCount,
                                  errorCount,
+                                 skippedCount,
                                  cancelledCount);
             continue;
         }
@@ -183,43 +209,46 @@ void BatchEnhanceWorkerThread::run()
             if (outMat.empty() || outMat.type() != CV_8UC1) {
                 errorCount++;
                 emit jobStepFinished(i,
-                                     job.pairId,
+                                     total,
+                                     job,
                                      QImage(),
                                      elapsedMs,
                                      false,
                                      "Kết quả thuật toán rỗng.",
-                                     static_cast<int>(job.mode),
                                      successCount,
                                      errorCount,
+                                     skippedCount,
                                      cancelledCount);
             } else {
                 successCount++;
                 QImage qImg(outMat.data, outMat.cols, outMat.rows, static_cast<int>(outMat.step), QImage::Format_Grayscale8);
                 emit jobStepFinished(i,
-                                     job.pairId,
+                                     total,
+                                     job,
                                      qImg.copy(),
                                      elapsedMs,
                                      true,
                                      QString(),
-                                     static_cast<int>(job.mode),
                                      successCount,
                                      errorCount,
+                                     skippedCount,
                                      cancelledCount);
             }
         } catch (const std::exception &ex) {
             errorCount++;
             emit jobStepFinished(i,
-                                 job.pairId,
+                                 total,
+                                 job,
                                  QImage(),
                                  timer.elapsed(),
                                  false,
                                  QString("Lỗi xử lý: %1").arg(ex.what()),
-                                 static_cast<int>(job.mode),
                                  successCount,
                                  errorCount,
+                                 skippedCount,
                                  cancelledCount);
         }
     }
 
-    emit batchFinished(successCount, errorCount, cancelledCount);
+    emit batchFinished(total, successCount, errorCount, skippedCount, cancelledCount);
 }

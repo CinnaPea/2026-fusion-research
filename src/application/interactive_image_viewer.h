@@ -19,7 +19,7 @@ public:
     explicit InteractiveImageViewer(QWidget *parent = nullptr);
     ~InteractiveImageViewer() override = default;
 
-    void setPixmap(const QPixmap &pixmap);
+    void setPixmap(const QPixmap &pixmap, bool preserveViewport = false);
     void clearImage(const QString &placeholder = QString());
     [[nodiscard]] const QPixmap& pixmap() const { return pixmap_; }
     [[nodiscard]] bool hasImage() const { return !pixmap_.isNull(); }

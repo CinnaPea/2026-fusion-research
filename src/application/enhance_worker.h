@@ -10,9 +10,14 @@
 #include "application/application_controller.h"
 
 struct EnhanceJobRequest {
+    quint64 sessionId = 0;
+    quint64 requestId = 0;
     QString pairId;
+    QString datasetId;
     std::filesystem::path thermalFullPath;
-    qart::application::ThermalProcessingMode mode = qart::application::ThermalProcessingMode::N5PostHalf;
+    qart::application::ThermalProcessingMode mode = qart::application::ThermalProcessingMode::Bypass;
+    bool isSkipped = false;
+    QString skipReason;
 };
 
 // Worker thread for single-pair processing
@@ -25,12 +30,11 @@ public:
     ~SingleEnhanceWorkerThread() override;
 
 signals:
-    void jobFinished(const QString &pairId,
+    void jobFinished(const EnhanceJobRequest &request,
                      const QImage &resultImage,
                      qint64 elapsedMs,
                      bool success,
-                     const QString &errorMessage,
-                     int mode);
+                     const QString &errorMessage);
 
 protected:
     void run() override;
@@ -53,17 +57,22 @@ public:
 
 signals:
     void jobStepFinished(int index,
-                         const QString &pairId,
+                         int totalCount,
+                         const EnhanceJobRequest &request,
                          const QImage &resultImage,
                          qint64 elapsedMs,
                          bool success,
                          const QString &errorMessage,
-                         int mode,
                          int successCount,
                          int errorCount,
+                         int skippedCount,
                          int cancelledCount);
 
-    void batchFinished(int successCount, int errorCount, int cancelledCount);
+    void batchFinished(int totalCount,
+                       int successCount,
+                       int errorCount,
+                       int skippedCount,
+                       int cancelledCount);
 
 protected:
     void run() override;

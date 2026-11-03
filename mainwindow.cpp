@@ -110,16 +110,6 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
 
-    // Modality locked: radN5Thermal only
-    connect(ui->radN5Thermal, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked && ui->lstImagePairs->currentItem()) {
-            int idx = ui->lstImagePairs->currentItem()->data(Qt::UserRole).toInt();
-            if (idx >= 0 && idx < static_cast<int>(displayedItems_.size())) {
-                updateQualityN5Tab(displayedItems_[idx]);
-            }
-        }
-    });
-
     connect(ui->radModeN5, &QRadioButton::toggled, this, [this](bool checked) {
         if (checked && n5State_ == N5UiState::NotRun) {
             setN5UiState(N5UiState::NotRun);
@@ -131,27 +121,53 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
 
+    updateBatchButtonText();
     setN5UiState(N5UiState::NotRun);
     appendLog("Hệ thống khởi động thành công. Sẵn sàng.");
 }
 
-MainWindow::~MainWindow()
+void MainWindow::closeEvent(QCloseEvent *event)
 {
+    if (batchWorker_) {
+        batchWorker_->disconnect(this);
+        if (batchWorker_->isRunning()) {
+            batchWorker_->requestCancel();
+            batchWorker_->wait(2500);
+        }
+        delete batchWorker_;
+        batchWorker_ = nullptr;
+    }
     if (singleWorker_) {
+        singleWorker_->disconnect(this);
         if (singleWorker_->isRunning()) {
             singleWorker_->requestInterruption();
-            singleWorker_->wait(1000);
+            singleWorker_->wait(1500);
         }
         delete singleWorker_;
         singleWorker_ = nullptr;
     }
+    event->accept();
+}
+
+MainWindow::~MainWindow()
+{
     if (batchWorker_) {
+        batchWorker_->disconnect(this);
         if (batchWorker_->isRunning()) {
             batchWorker_->requestCancel();
-            batchWorker_->wait(2000);
+            batchWorker_->wait(2500);
         }
         delete batchWorker_;
         batchWorker_ = nullptr;
+    }
+    if (singleWorker_) {
+        singleWorker_->disconnect(this);
+        if (singleWorker_->isRunning()) {
+            singleWorker_->requestInterruption();
+            singleWorker_->wait(1500);
+        }
+        delete singleWorker_;
+        singleWorker_ = nullptr;
     }
     delete ui;
 }
@@ -235,6 +251,15 @@ void MainWindow::onBrowseDatasetClicked()
 void MainWindow::loadDatasetFromDirectory(const QString &dirPath)
 {
     try {
+        currentSessionId_++;
+        currentRequestId_++;
+        cachedN5OriginalPixmap_ = QPixmap();
+        cachedN5EnhancedPixmap_ = QPixmap();
+        activeN5PairId_.clear();
+        if (ui->viewerN5Original) ui->viewerN5Original->clearImage("Chưa có ảnh nhiệt");
+        if (ui->viewerN5Enhanced) ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
+        setN5UiState(N5UiState::NotRun);
+
         ui->txtDatasetDir->setText(dirPath);
         ui->lstImagePairs->clear();
 
@@ -393,10 +418,17 @@ void MainWindow::applyFiltersAndModes()
                 || viewMode == "queue"
             )
         ) {
-            throw std::runtime_error(
-                "DVTOD raw pairs are source-valid but not same-geometry VALID. "
-                "Standard Mode B/C is intentionally unavailable before "
-                "Phase 3 registration."
+            isUpdatingControls_ = true;
+            ui->cbViewMode->setCurrentIndex(0); // Chế độ A: Duyệt toàn bộ
+            isUpdatingControls_ = false;
+            viewMode = "full";
+            appendLog("DVTOD: Mode B/C không khả dụng trước căn chỉnh Phase 3 vì các cặp ảnh chưa đồng kích thước.");
+            QMessageBox::information(
+                this,
+                "Chế độ xem không khả dụng",
+                "Các cặp ảnh DVTOD là nguồn hợp lệ nhưng chưa đồng kích thước pixel (1920x1080 vs 640x512).\n"
+                "Chế độ lấy mẫu tự động (Mode B/C) yêu cầu các ảnh cùng hình học pixel.\n"
+                "Hệ thống tự động chuyển về Chế độ A (Duyệt toàn bộ) để nghiên cứu căn chỉnh."
             );
         }
 
@@ -527,12 +559,15 @@ void MainWindow::applyFiltersAndModes()
             ui->lstImagePairs->setCurrentRow(0);
             onPairSelected(ui->lstImagePairs->item(0));
         }
+
+        updateBatchButtonText();
     } catch (const std::exception &ex) {
         const QString failedMode = ui->cbViewMode->currentData().toString();
         if (failedMode == "sample" || failedMode == "queue") {
             ui->lblPairCount->setText("Mode B/C không khả dụng");
         }
         ui->lblSystemStatus->setText(QString("Lỗi áp dụng bộ lọc: %1").arg(ex.what()));
+        updateBatchButtonText();
     }
 }
 
@@ -616,15 +651,27 @@ void MainWindow::displayPair(const PairItemEntry &entry) {
         QString tagText = getStatusTagText(status);
         QString colorHex = getStatusColorHex(status);
 
-        ui->lblPairStatus->setText(QString("Trạng thái: %1").arg(tagText));
-        ui->lblPairStatus->setStyleSheet(QString("background-color: %1; color: #FFFFFF; padding: 4px 10px; border-radius: 4px; font-weight: bold;")
-                                             .arg(colorHex));
-
-        if (!messageText.isEmpty()) {
+        if (status == PairValidationStatus::DimensionMismatch) {
+            tagText = "LỆCH KÍCH THƯỚC (CHỜ CĂN CHỈNH)";
+            colorHex = "#D97706";
+            ui->lblPairStatusMessage->setText(
+                QString("Cặp nguồn hợp lệ để nghiên cứu căn chỉnh (Phase 3). "
+                        "Chưa đủ điều kiện xử lý chung theo pixel "
+                        "(Visible: %1x%2 px, Thermal: %3x%4 px). "
+                        "Hệ thống không tự resize để né kiểm định.")
+                    .arg(visWidth.value_or(0))
+                    .arg(visHeight.value_or(0))
+                    .arg(thrWidth.value_or(0))
+                    .arg(thrHeight.value_or(0)));
+        } else if (!messageText.isEmpty()) {
             ui->lblPairStatusMessage->setText(QString("Chi tiết: %1 | %2").arg(messageText, descText));
         } else {
             ui->lblPairStatusMessage->setText(QString("Chi tiết: %1").arg(descText));
         }
+
+        ui->lblPairStatus->setText(QString("Trạng thái: %1").arg(tagText));
+        ui->lblPairStatus->setStyleSheet(QString("background-color: %1; color: #FFFFFF; padding: 4px 10px; border-radius: 4px; font-weight: bold;")
+                                             .arg(colorHex));
 
         // Resolve Full Paths
         std::filesystem::path visFullPath = appController_.datasetRoot() / pair.visibleRelativePath();
@@ -1252,6 +1299,15 @@ void MainWindow::onDatasetChanged(int index)
     if (isUpdatingControls_) return;
 
     try {
+        currentSessionId_++;
+        currentRequestId_++;
+        cachedN5OriginalPixmap_ = QPixmap();
+        cachedN5EnhancedPixmap_ = QPixmap();
+        activeN5PairId_.clear();
+        if (ui->viewerN5Original) ui->viewerN5Original->clearImage("Chưa có ảnh nhiệt");
+        if (ui->viewerN5Enhanced) ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
+        setN5UiState(N5UiState::NotRun);
+
         if (!ui->txtDatasetDir->text().isEmpty()) {
             loadDatasetFromDirectory(ui->txtDatasetDir->text());
         }
@@ -1266,6 +1322,15 @@ void MainWindow::onPartitionChanged(int index)
     if (isUpdatingControls_) return;
 
     try {
+        currentSessionId_++;
+        currentRequestId_++;
+        cachedN5OriginalPixmap_ = QPixmap();
+        cachedN5EnhancedPixmap_ = QPixmap();
+        activeN5PairId_.clear();
+        if (ui->viewerN5Original) ui->viewerN5Original->clearImage("Chưa có ảnh nhiệt");
+        if (ui->viewerN5Enhanced) ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
+        setN5UiState(N5UiState::NotRun);
+
         applyFiltersAndModes();
     } catch (const std::exception &ex) {
         ui->lblSystemStatus->setText(QString("Lỗi đổi partition: %1").arg(ex.what()));
@@ -1278,6 +1343,15 @@ void MainWindow::onViewModeChanged(int index)
     if (isUpdatingControls_) return;
 
     try {
+        currentSessionId_++;
+        currentRequestId_++;
+        cachedN5OriginalPixmap_ = QPixmap();
+        cachedN5EnhancedPixmap_ = QPixmap();
+        activeN5PairId_.clear();
+        if (ui->viewerN5Original) ui->viewerN5Original->clearImage("Chưa có ảnh nhiệt");
+        if (ui->viewerN5Enhanced) ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
+        setN5UiState(N5UiState::NotRun);
+
         QString mode = ui->cbViewMode->currentData().toString();
         bool isSampleOrQueue = (mode == "sample" || mode == "queue" || mode == "random");
         ui->lblSampleCountLabel->setVisible(isSampleOrQueue);
@@ -1501,6 +1575,24 @@ void MainWindow::appendLog(const QString &message)
     }
 }
 
+void MainWindow::updateBatchButtonText()
+{
+    if (isBatchEnhancing_) {
+        ui->btnEnhanceAll->setText(tr("Dừng tăng cường"));
+        ui->btnEnhanceAll->setStyleSheet("background-color: #7B1113; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 6px;");
+        return;
+    }
+    ui->btnEnhanceAll->setStyleSheet("");
+    const int count = static_cast<int>(displayedItems_.size());
+    if (count > 0) {
+        ui->btnEnhanceAll->setText(QString("Tăng cường danh sách hiển thị (%1 cặp)").arg(count));
+        ui->btnEnhanceAll->setEnabled(true);
+    } else {
+        ui->btnEnhanceAll->setText(tr("Tăng cường danh sách hiển thị"));
+        ui->btnEnhanceAll->setEnabled(false);
+    }
+}
+
 void MainWindow::onApplyN5Clicked()
 {
     try {
@@ -1518,7 +1610,20 @@ void MainWindow::onApplyN5Clicked()
             return;
         }
 
-        const auto &entry = displayedItems_[idx];
+        auto &entry = displayedItems_[idx];
+        if (!entry.validationResult.has_value()) {
+            entry.validationResult = appController_.getOrValidatePair(entry.pair);
+        }
+
+        // Tách biệt điều kiện kiểm định: Chỉ cần kênh nhiệt hợp lệ (thermalDecoded == true),
+        // không yêu cầu 2 ảnh phải cùng kích thước.
+        if (!entry.validationResult->thermalDecoded()) {
+            appendLog(QString("Enhancement blocked: pair %1 thermal image failed validation.").arg(activeN5PairId_));
+            QMessageBox::warning(this, "Không đủ điều kiện xử lý",
+                                 "Ảnh nhiệt của cặp này không đạt điều kiện kiểm định (thiếu file hoặc lỗi giải mã).");
+            return;
+        }
+
         const auto &pair = entry.pair;
         std::filesystem::path fullPath = appController_.datasetRoot() / pair.thermalRelativePath();
 
@@ -1532,24 +1637,29 @@ void MainWindow::onApplyN5Clicked()
         ui->viewerN5Enhanced->clearImage(QString("Đang xử lý worker thread (%1)...").arg(modeStr));
         appendLog(QString("Started enhancement for pair %1 (Method: %2)").arg(activeN5PairId_, modeStr));
 
-        // 2. Chạy tác vụ xử lý trên worker thread thật (không chạy trên GUI thread)
+        // 2. Chống race condition & đảm bảo an toàn luồng:
         if (singleWorker_) {
+            singleWorker_->disconnect(this);
             if (singleWorker_->isRunning()) {
                 singleWorker_->requestInterruption();
-                singleWorker_->wait(500);
             }
-            delete singleWorker_;
+            connect(singleWorker_, &QThread::finished, singleWorker_, &QObject::deleteLater);
             singleWorker_ = nullptr;
         }
 
+        currentRequestId_++;
         EnhanceJobRequest req;
+        req.sessionId = currentSessionId_;
+        req.requestId = currentRequestId_;
         req.pairId = activeN5PairId_;
+        req.datasetId = QString::fromStdString(appController_.currentDatasetId());
         req.thermalFullPath = fullPath;
         req.mode = mode;
 
         singleWorker_ = new SingleEnhanceWorkerThread(req, this);
         connect(singleWorker_, &SingleEnhanceWorkerThread::jobFinished,
                 this, &MainWindow::onSingleWorkerFinished);
+        connect(singleWorker_, &QThread::finished, singleWorker_, &QObject::deleteLater);
         singleWorker_->start();
     } catch (const std::exception &ex) {
         setN5UiState(N5UiState::Error, 0, ex.what());
@@ -1557,25 +1667,31 @@ void MainWindow::onApplyN5Clicked()
     }
 }
 
-void MainWindow::onSingleWorkerFinished(const QString &pairId,
+void MainWindow::onSingleWorkerFinished(const EnhanceJobRequest &request,
                                         const QImage &resultImage,
                                         qint64 elapsedMs,
                                         bool success,
-                                        const QString &errorMessage,
-                                        int mode)
+                                        const QString &errorMessage)
 {
-    // STALE INVALIDATION: Nếu người dùng đã chọn cặp ảnh khác trong lúc worker đang chạy,
-    // kết quả cũ sẽ bị loại bỏ hoàn toàn, không đè lên cặp mới!
-    if (pairId != activeN5PairId_) {
-        appendLog(QString("Dropped stale result for pair %1 (active pair is %2).").arg(pairId, activeN5PairId_));
+    // Giải phóng con trỏ theo dõi nếu đúng luồng này kết thúc
+    if (singleWorker_ == sender()) {
+        singleWorker_ = nullptr;
+    }
+
+    // STALE INVALIDATION: So khớp session ID, request ID và pair ID
+    if (request.sessionId != currentSessionId_ || request.requestId != currentRequestId_ || request.pairId != activeN5PairId_) {
+        appendLog(QString("Dropped stale result for pair %1 (request #%2, active request is #%3).")
+                      .arg(request.pairId)
+                      .arg(request.requestId)
+                      .arg(currentRequestId_));
         return;
     }
 
-    const QString modeStr = (mode == static_cast<int>(qart::application::ThermalProcessingMode::Bypass)) ? "BYPASS" : "N5";
+    const QString modeStr = (request.mode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
 
     if (success && !resultImage.isNull()) {
         cachedN5EnhancedPixmap_ = QPixmap::fromImage(resultImage);
-        ui->viewerN5Enhanced->setPixmap(cachedN5EnhancedPixmap_);
+        ui->viewerN5Enhanced->setPixmap(cachedN5EnhancedPixmap_, false);
         ui->viewerN5Enhanced->fitToView();
 
         if (ui->chkSyncView->isChecked()) {
@@ -1583,12 +1699,18 @@ void MainWindow::onSingleWorkerFinished(const QString &pairId,
         }
 
         setN5UiState(N5UiState::Completed, elapsedMs);
-        appendLog(QString("Finished enhancement for pair %1 in %2 ms.").arg(pairId).arg(elapsedMs));
+        appendLog(QString("Finished enhancement for pair %1 in %2 ms (Method: %3).").arg(request.pairId).arg(elapsedMs).arg(modeStr));
 
-        // Lưu kết quả thực vào danh sách Phase 2
+        if (modeStr == "BYPASS") {
+            ui->lblN5EnhancedInfo->setText(QString("Thời gian: %1 ms | Trạng thái: Hoàn tất | BYPASS (Giữ nguyên đầu vào grayscale đã chuẩn bị)").arg(elapsedMs));
+        } else {
+            ui->lblN5EnhancedInfo->setText(QString("Thời gian: %1 ms | Trạng thái: Hoàn tất | N5 (Tăng cường từ đầu vào grayscale đã chuẩn bị)").arg(elapsedMs));
+        }
+
+        // Lưu kết quả thực vào danh sách Phase 2 với đúng datasetId và mode của request
         Phase2Record rec;
-        rec.pairId = pairId;
-        rec.datasetId = QString::fromStdString(appController_.currentDatasetId());
+        rec.pairId = request.pairId;
+        rec.datasetId = request.datasetId;
         rec.processingMethod = modeStr;
         rec.processingVersion = (modeStr == "BYPASS") ? "BYPASS-v1.0" : "N5PostHalf-v1.0";
         rec.status = "SUCCESS";
@@ -1598,11 +1720,11 @@ void MainWindow::onSingleWorkerFinished(const QString &pairId,
         cachedN5EnhancedPixmap_ = QPixmap();
         ui->viewerN5Enhanced->clearImage(QString("Lỗi: %1").arg(errorMessage));
         setN5UiState(N5UiState::Error, elapsedMs, errorMessage);
-        appendLog(QString("Failed to process %1 for pair %2: %3").arg(modeStr, pairId, errorMessage));
+        appendLog(QString("Failed to process %1 for pair %2: %3").arg(modeStr, request.pairId, errorMessage));
 
         Phase2Record rec;
-        rec.pairId = pairId;
-        rec.datasetId = QString::fromStdString(appController_.currentDatasetId());
+        rec.pairId = request.pairId;
+        rec.datasetId = request.datasetId;
         rec.processingMethod = modeStr;
         rec.processingVersion = (modeStr == "BYPASS") ? "BYPASS-v1.0" : "N5PostHalf-v1.0";
         rec.status = "ERROR";
@@ -1637,18 +1759,31 @@ void MainWindow::onEnhanceAllClicked()
 
         std::vector<EnhanceJobRequest> requests;
         requests.reserve(displayedItems_.size());
-        for (const auto &item : displayedItems_) {
+
+        currentRequestId_++;
+        for (auto &item : displayedItems_) {
+            if (!item.validationResult.has_value()) {
+                item.validationResult = appController_.getOrValidatePair(item.pair);
+            }
+
             EnhanceJobRequest req;
+            req.sessionId = currentSessionId_;
+            req.requestId = currentRequestId_;
             req.pairId = QString::fromStdString(item.pair.pairId());
+            req.datasetId = QString::fromStdString(appController_.currentDatasetId());
             req.thermalFullPath = appController_.datasetRoot() / item.pair.thermalRelativePath();
             req.mode = mode;
+
+            if (!item.validationResult->thermalDecoded()) {
+                req.isSkipped = true;
+                req.skipReason = "Lỗi kiểm định ảnh nhiệt";
+            }
             requests.push_back(req);
         }
 
         const int totalCount = static_cast<int>(requests.size());
         isBatchEnhancing_ = true;
-        ui->btnEnhanceAll->setText(tr("Dừng tăng cường"));
-        ui->btnEnhanceAll->setStyleSheet("background-color: #7B1113; color: #FFFFFF; font-weight: bold; border-radius: 4px; padding: 6px;");
+        updateBatchButtonText();
         ui->btnApplyN5->setEnabled(false);
         ui->btnResetN5->setEnabled(false);
 
@@ -1660,39 +1795,45 @@ void MainWindow::onEnhanceAllClicked()
         appendLog(QString("Started batch processing for %1 pairs (%2).").arg(totalCount).arg(modeStr));
 
         if (batchWorker_) {
+            batchWorker_->disconnect(this);
             if (batchWorker_->isRunning()) {
                 batchWorker_->requestCancel();
-                batchWorker_->wait(500);
             }
-            delete batchWorker_;
+            connect(batchWorker_, &QThread::finished, batchWorker_, &QObject::deleteLater);
             batchWorker_ = nullptr;
         }
 
         batchWorker_ = new BatchEnhanceWorkerThread(std::move(requests), this);
         connect(batchWorker_, &BatchEnhanceWorkerThread::jobStepFinished, this, &MainWindow::onBatchStepFinished);
         connect(batchWorker_, &BatchEnhanceWorkerThread::batchFinished, this, &MainWindow::onBatchWorkerFinished);
+        connect(batchWorker_, &QThread::finished, batchWorker_, &QObject::deleteLater);
         batchWorker_->start();
     } catch (const std::exception &ex) {
         isBatchEnhancing_ = false;
-        ui->btnEnhanceAll->setText(tr("Tăng cường toàn bộ dataset"));
-        ui->btnEnhanceAll->setStyleSheet("");
+        updateBatchButtonText();
         setN5UiState(N5UiState::Error, 0, ex.what());
         QMessageBox::critical(this, "Lỗi xử lý hàng loạt", QString("Đã xảy ra lỗi:\n%1").arg(ex.what()));
     }
 }
 
 void MainWindow::onBatchStepFinished(int index,
-                                     const QString &pairId,
+                                     int totalCount,
+                                     const EnhanceJobRequest &request,
                                      const QImage &resultImage,
                                      qint64 elapsedMs,
                                      bool success,
                                      const QString &errorMessage,
-                                     int mode,
                                      int successCount,
                                      int errorCount,
+                                     int skippedCount,
                                      int cancelledCount)
 {
     Q_UNUSED(cancelledCount);
+
+    if (request.sessionId != currentSessionId_) {
+        return; // Stale batch step from previous session
+    }
+
     // 1. Chuyển chọn dòng và cuộn danh sách hiển thị
     if (index >= 0 && index < ui->lstImagePairs->count()) {
         ui->lstImagePairs->setCurrentRow(index);
@@ -1701,18 +1842,18 @@ void MainWindow::onBatchStepFinished(int index,
         }
     }
 
-    activeN5PairId_ = pairId;
-    const QString modeStr = (mode == static_cast<int>(qart::application::ThermalProcessingMode::Bypass)) ? "BYPASS" : "N5";
+    activeN5PairId_ = request.pairId;
+    const QString modeStr = (request.mode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
 
     if (success && !resultImage.isNull()) {
         cachedN5EnhancedPixmap_ = QPixmap::fromImage(resultImage);
-        ui->viewerN5Enhanced->setPixmap(cachedN5EnhancedPixmap_);
+        ui->viewerN5Enhanced->setPixmap(cachedN5EnhancedPixmap_, false);
         ui->viewerN5Enhanced->fitToView();
-        ui->lblN5EnhancedInfo->setText(QString("Cặp: %1 | %2 OK (%3 ms)").arg(pairId, modeStr).arg(elapsedMs));
+        ui->lblN5EnhancedInfo->setText(QString("Cặp: %1 | %2 OK (%3 ms)").arg(request.pairId, modeStr).arg(elapsedMs));
 
         Phase2Record rec;
-        rec.pairId = pairId;
-        rec.datasetId = QString::fromStdString(appController_.currentDatasetId());
+        rec.pairId = request.pairId;
+        rec.datasetId = request.datasetId;
         rec.processingMethod = modeStr;
         rec.processingVersion = (modeStr == "BYPASS") ? "BYPASS-v1.0" : "N5PostHalf-v1.0";
         rec.status = "SUCCESS";
@@ -1720,59 +1861,64 @@ void MainWindow::onBatchStepFinished(int index,
         phase2Results_.push_back(rec);
     } else {
         cachedN5EnhancedPixmap_ = QPixmap();
-        ui->viewerN5Enhanced->clearImage(QString("Lỗi: %1").arg(errorMessage));
-        ui->lblN5EnhancedInfo->setText(QString("Cặp: %1 | Lỗi: %2").arg(pairId, errorMessage));
-        appendLog(QString("Batch item error on pair %1: %2").arg(pairId, errorMessage));
+        ui->viewerN5Enhanced->clearImage(QString("Lỗi/Bỏ qua: %1").arg(errorMessage));
+        ui->lblN5EnhancedInfo->setText(QString("Cặp: %1 | %2").arg(request.pairId, errorMessage));
+        appendLog(QString("Batch item (%1): pair %2 - %3").arg(request.isSkipped ? "Skipped" : "Error", request.pairId, errorMessage));
 
         Phase2Record rec;
-        rec.pairId = pairId;
-        rec.datasetId = QString::fromStdString(appController_.currentDatasetId());
+        rec.pairId = request.pairId;
+        rec.datasetId = request.datasetId;
         rec.processingMethod = modeStr;
         rec.processingVersion = (modeStr == "BYPASS") ? "BYPASS-v1.0" : "N5PostHalf-v1.0";
-        rec.status = "ERROR";
+        rec.status = request.isSkipped ? "SKIPPED" : "ERROR";
         rec.elapsedMs = elapsedMs > 0 ? std::optional<qint64>(elapsedMs) : std::nullopt;
         rec.errorMessage = errorMessage;
         phase2Results_.push_back(rec);
     }
 
+    ui->prgN5->setRange(0, totalCount);
     ui->prgN5->setValue(index + 1);
-    ui->lblN5Status->setText(QString("Đang xử lý: %1/%2 (Thành công: %3 | Lỗi: %4)")
+    ui->lblN5Status->setText(QString("Đang xử lý: %1/%2 | Thành công: %3 | Lỗi: %4 | Bỏ qua: %5")
                                  .arg(index + 1)
-                                 .arg(ui->prgN5->maximum())
+                                 .arg(totalCount)
                                  .arg(successCount)
-                                 .arg(errorCount));
+                                 .arg(errorCount)
+                                 .arg(skippedCount));
 }
 
-void MainWindow::onBatchWorkerFinished(int successCount, int errorCount, int cancelledCount)
+void MainWindow::onBatchWorkerFinished(int totalCount, int successCount, int errorCount, int skippedCount, int cancelledCount)
 {
-    const int total = successCount + errorCount + cancelledCount;
+    if (batchWorker_ == sender()) {
+        batchWorker_ = nullptr;
+    }
+
     const bool stoppedEarly = (cancelledCount > 0);
     isBatchEnhancing_ = false;
 
-    ui->btnEnhanceAll->setText(tr("Tăng cường toàn bộ dataset"));
-    ui->btnEnhanceAll->setStyleSheet("");
+    updateBatchButtonText();
     ui->btnApplyN5->setEnabled(!activeN5PairId_.isEmpty());
     ui->btnResetN5->setEnabled(!cachedN5EnhancedPixmap_.isNull());
     ui->prgN5->setVisible(false);
 
     if (stoppedEarly) {
         setN5UiState(N5UiState::Cancelled);
-        ui->lblN5Status->setText(QString("Đã hủy: %1 thành công, %2 lỗi, %3 đã hủy (Tổng số %4).")
-                                     .arg(successCount).arg(errorCount).arg(cancelledCount).arg(total));
-        appendLog(QString("Batch cancelled: %1 succeeded, %2 failed, %3 cancelled (Total %4).")
-                      .arg(successCount).arg(errorCount).arg(cancelledCount).arg(total));
+        ui->lblN5Status->setText(QString("Đã hủy: Tổng %1 | Thành công: %2 | Lỗi: %3 | Bỏ qua: %4 | Đã hủy: %5")
+                                     .arg(totalCount).arg(successCount).arg(errorCount).arg(skippedCount).arg(cancelledCount));
+        appendLog(QString("Batch cancelled: %1 succeeded, %2 failed, %3 skipped, %4 cancelled (Total %5).")
+                      .arg(successCount).arg(errorCount).arg(skippedCount).arg(cancelledCount).arg(totalCount));
     } else {
         setN5UiState(N5UiState::Completed);
-        ui->lblN5Status->setText(QString("Hoàn tất: %1 thành công, %2 lỗi (Tổng số %3).")
-                                     .arg(successCount).arg(errorCount).arg(total));
-        appendLog(QString("Batch completed: %1 succeeded, %2 failed (Total %3).")
-                      .arg(successCount).arg(errorCount).arg(total));
+        ui->lblN5Status->setText(QString("Hoàn tất: Tổng %1 | Thành công: %2 | Lỗi: %3 | Bỏ qua: %4")
+                                     .arg(totalCount).arg(successCount).arg(errorCount).arg(skippedCount));
+        appendLog(QString("Batch completed: %1 succeeded, %2 failed, %3 skipped (Total %4).")
+                      .arg(successCount).arg(errorCount).arg(skippedCount).arg(totalCount));
     }
 }
 
 void MainWindow::onResetN5Clicked()
 {
     try {
+        currentRequestId_++;
         if (isBatchEnhancing_) {
             if (batchWorker_) {
                 batchWorker_->requestCancel();
@@ -1828,13 +1974,40 @@ void MainWindow::updateQualityN5Tab(const PairItemEntry &entry)
         std::filesystem::path targetRelPath = pair.thermalRelativePath();
         std::filesystem::path fullPath = appController_.datasetRoot() / targetRelPath;
 
+        if (!entry.validationResult.has_value()) {
+            const_cast<PairItemEntry&>(entry).validationResult = appController_.getOrValidatePair(entry.pair);
+        }
+        const bool thermalDecoded = entry.validationResult.has_value() && entry.validationResult->thermalDecoded();
+
+        int irChannels = 0;
         if (QFile::exists(QString::fromStdString(fullPath.string()))) {
             cachedN5OriginalPixmap_ = QPixmap(QString::fromStdString(fullPath.string()));
+            cv::Mat inspectMat = cv::imread(fullPath.string(), cv::IMREAD_UNCHANGED);
+            if (!inspectMat.empty()) {
+                irChannels = inspectMat.channels();
+            }
+
             if (!cachedN5OriginalPixmap_.isNull()) {
-                ui->lblN5OriginalInfo->setText(QString("File: %1\nKích thước: %2 x %3 px | Modality: Thermal (A2)")
-                                                   .arg(QString::fromStdString(targetRelPath.string()))
-                                                   .arg(cachedN5OriginalPixmap_.width())
-                                                   .arg(cachedN5OriginalPixmap_.height()));
+                QString channelDesc;
+                if (irChannels == 3) {
+                    channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | 3 kênh (Colormap/Ảnh màu)\n"
+                                          "Đầu vào grayscale đã chuẩn bị: %1 x %2 px (BGR → Grayscale uint8)\n"
+                                          "[Ghi chú: Giữ nguyên biểu diễn, không tự giải mã bảng màu]")
+                                      .arg(cachedN5OriginalPixmap_.width())
+                                      .arg(cachedN5OriginalPixmap_.height());
+                } else if (irChannels == 1) {
+                    channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | 1 kênh đơn sắc (Grayscale uint8)\n"
+                                          "Đầu vào grayscale đã chuẩn bị: %1 x %2 px (Đơn kênh nguyên bản)")
+                                      .arg(cachedN5OriginalPixmap_.width())
+                                      .arg(cachedN5OriginalPixmap_.height());
+                } else {
+                    channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | Modality: Thermal (A2)")
+                                      .arg(cachedN5OriginalPixmap_.width())
+                                      .arg(cachedN5OriginalPixmap_.height());
+                }
+
+                ui->lblN5OriginalInfo->setText(QString("File: %1\n%2")
+                                                   .arg(QString::fromStdString(targetRelPath.string()), channelDesc));
                 ui->viewerN5Original->setPixmap(cachedN5OriginalPixmap_);
             } else {
                 cachedN5OriginalPixmap_ = QPixmap();
@@ -1850,9 +2023,21 @@ void MainWindow::updateQualityN5Tab(const PairItemEntry &entry)
         }
 
         // STALE INVALIDATION: Xóa ngay trạng thái và kết quả cũ trên khung xem khi đổi cặp ảnh!
+        currentRequestId_++;
         cachedN5EnhancedPixmap_ = QPixmap();
         ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
-        setN5UiState(N5UiState::NotRun);
+
+        if (!thermalDecoded) {
+            ui->btnApplyN5->setEnabled(false);
+            ui->btnApplyN5->setToolTip(tr("Ảnh nhiệt không đạt điều kiện kiểm định (thiếu file hoặc lỗi giải mã)."));
+            ui->lblN5Status->setText(tr("Trạng thái: Không thể xử lý (Ảnh nhiệt không hợp lệ)"));
+            ui->lblN5Status->setStyleSheet("background-color: #3d1a1a; color: #FF6B6B; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+            ui->lblN5EnhancedInfo->setText(tr("Thời gian: — | Trạng thái: Không thể xử lý"));
+        } else {
+            ui->btnApplyN5->setEnabled(!isBatchEnhancing_);
+            ui->btnApplyN5->setToolTip(tr("Áp dụng xử lý thuật toán cho ảnh nhiệt."));
+            setN5UiState(N5UiState::NotRun);
+        }
 
         ui->viewerN5Original->fitToView();
         ui->viewerN5Enhanced->fitToView();
@@ -1930,14 +2115,14 @@ void MainWindow::renderCachedN5Images()
 {
     if (ui->viewerN5Original) {
         if (!cachedN5OriginalPixmap_.isNull()) {
-            ui->viewerN5Original->setPixmap(cachedN5OriginalPixmap_);
+            ui->viewerN5Original->setPixmap(cachedN5OriginalPixmap_, true /* preserveViewport */);
         } else {
             ui->viewerN5Original->clearImage("Chưa có ảnh nhiệt");
         }
     }
     if (ui->viewerN5Enhanced) {
         if (!cachedN5EnhancedPixmap_.isNull()) {
-            ui->viewerN5Enhanced->setPixmap(cachedN5EnhancedPixmap_);
+            ui->viewerN5Enhanced->setPixmap(cachedN5EnhancedPixmap_, true /* preserveViewport */);
         } else {
             ui->viewerN5Enhanced->clearImage("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS");
         }
