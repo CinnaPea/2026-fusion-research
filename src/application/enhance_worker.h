@@ -3,6 +3,7 @@
 
 #include <QThread>
 #include <QImage>
+#include <QMetaType>
 #include <QString>
 #include <filesystem>
 #include <vector>
@@ -19,6 +20,7 @@ struct EnhanceJobRequest {
     bool isSkipped = false;
     QString skipReason;
 };
+Q_DECLARE_METATYPE(EnhanceJobRequest)
 
 // Worker thread for single-pair processing
 class SingleEnhanceWorkerThread : public QThread
@@ -49,14 +51,21 @@ class BatchEnhanceWorkerThread : public QThread
     Q_OBJECT
 
 public:
-    explicit BatchEnhanceWorkerThread(std::vector<EnhanceJobRequest> requests, QObject *parent = nullptr);
+    explicit BatchEnhanceWorkerThread(quint64 sessionId,
+                                      quint64 batchId,
+                                      std::vector<EnhanceJobRequest> requests,
+                                      QObject *parent = nullptr);
     ~BatchEnhanceWorkerThread() override;
 
     void requestCancel();
     [[nodiscard]] bool isCancelRequested() const { return cancelRequested_.load(); }
+    [[nodiscard]] quint64 sessionId() const noexcept { return sessionId_; }
+    [[nodiscard]] quint64 batchId() const noexcept { return batchId_; }
 
 signals:
-    void jobStepFinished(int index,
+    void jobStepFinished(quint64 sessionId,
+                         quint64 batchId,
+                         int index,
                          int totalCount,
                          const EnhanceJobRequest &request,
                          const QImage &resultImage,
@@ -68,7 +77,9 @@ signals:
                          int skippedCount,
                          int cancelledCount);
 
-    void batchFinished(int totalCount,
+    void batchFinished(quint64 sessionId,
+                       quint64 batchId,
+                       int totalCount,
                        int successCount,
                        int errorCount,
                        int skippedCount,
@@ -78,6 +89,8 @@ protected:
     void run() override;
 
 private:
+    quint64 sessionId_ = 0;
+    quint64 batchId_ = 0;
     std::vector<EnhanceJobRequest> requests_;
     std::atomic<bool> cancelRequested_{false};
 };

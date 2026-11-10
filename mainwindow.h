@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QString>
 #include <QMenu>
+#include <QPointer>
 #include <filesystem>
 #include <optional>
 #include <vector>
@@ -102,7 +103,9 @@ private slots:
                                 bool success,
                                 const QString &errorMessage);
 
-    void onBatchStepFinished(int index,
+    void onBatchStepFinished(quint64 sessionId,
+                             quint64 batchId,
+                             int index,
                              int totalCount,
                              const EnhanceJobRequest &request,
                              const QImage &resultImage,
@@ -114,7 +117,13 @@ private slots:
                              int skippedCount,
                              int cancelledCount);
 
-    void onBatchWorkerFinished(int totalCount, int successCount, int errorCount, int skippedCount, int cancelledCount);
+    void onBatchWorkerFinished(quint64 sessionId,
+                               quint64 batchId,
+                               int totalCount,
+                               int successCount,
+                               int errorCount,
+                               int skippedCount,
+                               int cancelledCount);
 
 private:
     void setupUiControls();
@@ -124,11 +133,19 @@ private:
     void renderImageToLabel(QLabel *label, const QString &imagePath, const QString &modality);
 
     // N5 enhancement helpers
+    bool loadThermalSourceIntoN5Viewer(const qart::core::domain::datasets::DatasetPair &pair, bool fitView);
     void updateQualityN5Tab(const PairItemEntry &entry);
-    void setN5UiState(N5UiState state, qint64 elapsedMs = 0, const QString &detailMsg = QString());
+    void setN5UiState(N5UiState state, qint64 elapsedMs = 0, const QString &detailMsg = QString(), const QString &methodOverride = QString());
     void renderCachedN5Images();
     void appendLog(const QString &message);
     void updateBatchButtonText();
+
+    // Thread lifecycle & invalidation helpers
+    void retireSingleWorker();
+    void retireBatchWorker();
+    void pruneFinishedRetiredWorkers();
+    void stopAllWorkersAndWait();
+    void invalidateActiveSessionAndWorkers(bool clearOriginalViewer = true);
 
     [[nodiscard]]
     static QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status);
@@ -148,18 +165,23 @@ private:
 
     qart::application::ApplicationController appController_;
 
-    // N5 state & caching members
+    // N5 single-image state & caching members (decoupled from batch state)
     N5UiState n5State_ = N5UiState::NotRun;
+    bool activeThermalValid_ = false;
     bool isBatchEnhancing_ = false;
+    bool isBatchCancelling_ = false;
+    int batchTotalCount_ = 0;
     QPixmap cachedN5OriginalPixmap_;
     QPixmap cachedN5EnhancedPixmap_;
     QString activeN5PairId_;
 
     // Threading
-    SingleEnhanceWorkerThread *singleWorker_ = nullptr;
-    BatchEnhanceWorkerThread *batchWorker_ = nullptr;
+    QPointer<SingleEnhanceWorkerThread> singleWorker_;
+    QPointer<BatchEnhanceWorkerThread> batchWorker_;
+    std::vector<QPointer<QThread>> pendingRetiredWorkers_;
     quint64 currentSessionId_ = 0;
     quint64 currentRequestId_ = 0;
+    quint64 currentBatchId_ = 0;
 
     // Storage for Phase 2 results
     std::vector<Phase2Record> phase2Results_;
