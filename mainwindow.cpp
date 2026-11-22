@@ -47,6 +47,13 @@ MainWindow::MainWindow(QWidget *parent)
     ui->splitterMain->setStretchFactor(1, 1);
     ui->splitterMain->setSizes({280, 940});
 
+    // Vertical splitter for Tab 2 right panel (Algorithm parameters on top, Log console below)
+    ui->splitterN5Right->setCollapsible(0, false);
+    ui->splitterN5Right->setCollapsible(1, false);
+    ui->splitterN5Right->setStretchFactor(0, 1);
+    ui->splitterN5Right->setStretchFactor(1, 0);
+    ui->splitterN5Right->setSizes({540, 150});
+
     // Tooltips on 5 tabs with Phase details
     ui->tabMainWorkspaces->setTabToolTip(0, "Phase 1 - Khám phá, kiểm định và bắt cặp tập dữ liệu");
     ui->tabMainWorkspaces->setTabToolTip(1, "Phase 2 - Đánh giá chất lượng và tăng cường ảnh nhiệt (N5 / BYPASS)");
@@ -122,6 +129,194 @@ MainWindow::MainWindow(QWidget *parent)
             setN5UiState(N5UiState::NotRun);
         }
     });
+
+    // Vertical splitter handle styling
+    ui->splitterN5Right->setStyleSheet(
+        "QSplitter::handle:vertical {"
+        "    background-color: #2b2e38;"
+        "    height: 6px;"
+        "    margin: 2px 0px;"
+        "    border-radius: 2px;"
+        "}"
+        "QSplitter::handle:vertical:hover {"
+        "    background-color: #528bff;"
+        "}"
+    );
+
+    // Algorithm parameters styling
+    ui->grpAlgorithmParams->setStyleSheet(
+        "QGroupBox#grpAlgorithmParams {"
+        "    font-weight: bold;"
+        "    border: 1px solid #3e4451;"
+        "    border-radius: 6px;"
+        "    margin-top: 6px;"
+        "    padding-top: 10px;"
+        "}"
+        "QGroupBox#grpAlgorithmParams::title {"
+        "    subcontrol-origin: margin;"
+        "    subcontrol-position: top left;"
+        "    padding: 0 4px;"
+        "    color: #abb2bf;"
+        "}"
+        "QGroupBox#grpAlgorithmParams QLabel {"
+        "    font-size: 11px;"
+        "    color: #cccccc;"
+        "}"
+        "QGroupBox#grpAlgorithmParams QSpinBox, "
+        "QGroupBox#grpAlgorithmParams QDoubleSpinBox, "
+        "QGroupBox#grpAlgorithmParams QComboBox {"
+        "    background-color: #181a1f;"
+        "    color: #ffffff;"
+        "    border: 1px solid #3e4451;"
+        "    border-radius: 3px;"
+        "    padding: 1px 4px;"
+        "    font-size: 11px;"
+        "}"
+        "QGroupBox#grpAlgorithmParams QSlider::groove:horizontal {"
+        "    height: 4px;"
+        "    background: #3a3f4b;"
+        "    border-radius: 2px;"
+        "}"
+        "QGroupBox#grpAlgorithmParams QSlider::sub-page:horizontal {"
+        "    background: #528bff;"
+        "    border-radius: 2px;"
+        "}"
+        "QGroupBox#grpAlgorithmParams QSlider::handle:horizontal {"
+        "    background: #dcdfe4;"
+        "    border: 1px solid #282c34;"
+        "    width: 14px;"
+        "    margin-top: -5px;"
+        "    margin-bottom: -5px;"
+        "    border-radius: 7px;"
+        "}"
+        "QGroupBox#grpAlgorithmParams QSlider::handle:horizontal:hover {"
+        "    background: #ffffff;"
+        "}"
+        "QGroupBox#grpAlgorithmParams QCheckBox {"
+        "    font-size: 11px;"
+        "    color: #cccccc;"
+        "    spacing: 5px;"
+        "}"
+    );
+    ui->btnParamDefaults->setStyleSheet(
+        "QPushButton#btnParamDefaults {"
+        "    background-color: #333842;"
+        "    color: #e0e0e0;"
+        "    border: 1px solid #4b5263;"
+        "    border-radius: 4px;"
+        "    padding: 5px;"
+        "    font-weight: bold;"
+        "}"
+        "QPushButton#btnParamDefaults:hover {"
+        "    background-color: #3e4451;"
+        "}"
+    );
+    ui->btnApplyN5->setStyleSheet(
+        "QPushButton#btnApplyN5 {"
+        "    background-color: #3b597c;"
+        "    color: #ffffff;"
+        "    border: 1px solid #528bff;"
+        "    border-radius: 4px;"
+        "    padding: 5px;"
+        "    font-weight: bold;"
+        "}"
+        "QPushButton#btnApplyN5:hover {"
+        "    background-color: #4a6f9c;"
+        "}"
+        "QPushButton#btnApplyN5:disabled {"
+        "    background-color: #2b2e38;"
+        "    color: #666666;"
+        "    border: 1px solid #3a3e4b;"
+        "}"
+    );
+
+    // Algorithm parameters two-way slider/spinbox synchronization
+    connect(ui->sldParamRadius, &QSlider::valueChanged, this, [this](int val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->spnParamRadius->setValue(val);
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+    connect(ui->spnParamRadius, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->sldParamRadius->setValue(val);
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+
+    connect(ui->sldParamEps, &QSlider::valueChanged, this, [this](int val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->spnParamEps->setValue(val / 1000.0);
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+    connect(ui->spnParamEps, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->sldParamEps->setValue(qRound(val * 1000.0));
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+
+    connect(ui->sldParamH, &QSlider::valueChanged, this, [this](int val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->spnParamH->setValue(val / 10.0);
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+    connect(ui->spnParamH, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->sldParamH->setValue(qRound(val * 10.0));
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+
+    connect(ui->sldParamGamma, &QSlider::valueChanged, this, [this](int val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->spnParamGamma->setValue(val / 100.0);
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+    connect(ui->spnParamGamma, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->sldParamGamma->setValue(qRound(val * 100.0));
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+
+    connect(ui->sldParamAlpha, &QSlider::valueChanged, this, [this](int val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->spnParamAlpha->setValue(val / 100.0);
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+    connect(ui->spnParamAlpha, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        if (isSyncingParams_) return;
+        isSyncingParams_ = true;
+        ui->sldParamAlpha->setValue(qRound(val * 100.0));
+        isSyncingParams_ = false;
+        onAlgorithmParamChanged();
+    });
+
+    connect(ui->cmbParamMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+        onAlgorithmParamChanged();
+    });
+    connect(ui->cmbParamDetailNorm, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+        onAlgorithmParamChanged();
+    });
+    connect(ui->chkParamAdaptiveNlm, &QCheckBox::toggled, this, [this](bool) {
+        onAlgorithmParamChanged();
+    });
+
+    connect(ui->btnParamDefaults, &QPushButton::clicked, this, &MainWindow::onResetAlgorithmParamsClicked);
 
     updateBatchButtonText();
     setN5UiState(N5UiState::NotRun);
@@ -1728,6 +1923,17 @@ void MainWindow::onApplyN5Clicked()
         setN5UiState(N5UiState::Processing, 0, QString(), modeStr);
         ui->viewerN5Enhanced->clearImage(QString("Đang xử lý worker thread (%1)...").arg(modeStr));
         appendLog(QString("Started enhancement for pair %1 (Method: %2)").arg(activeN5PairId_, modeStr));
+        if (mode == qart::application::ThermalProcessingMode::N5PostHalf) {
+            appendLog(QString("[N5 Paper Params] r=%1, eps=%2, h=%3, gamma=%4, alpha=%5 | Mode=%6, Norm=%7%8")
+                          .arg(ui->spnParamRadius->value())
+                          .arg(ui->spnParamEps->value(), 0, 'f', 3)
+                          .arg(ui->spnParamH->value(), 0, 'f', 1)
+                          .arg(ui->spnParamGamma->value(), 0, 'f', 2)
+                          .arg(ui->spnParamAlpha->value(), 0, 'f', 2)
+                          .arg(ui->cmbParamMode->currentText())
+                          .arg(ui->cmbParamDetailNorm->currentText())
+                          .arg(ui->chkParamAdaptiveNlm->isChecked() ? " | Adaptive NLM: Bật" : ""));
+        }
 
         // 2. Retire an toàn worker trước đó (không xóa thread khi còn đang chạy)
         retireSingleWorker();
@@ -2077,6 +2283,51 @@ void MainWindow::onResetN5Clicked()
         appendLog(QString("Cleared IR image cache for pair %1").arg(activeN5PairId_));
     } catch (const std::exception &ex) {
         ui->lblSystemStatus->setText(QString("Lỗi reset: %1").arg(ex.what()));
+    }
+}
+
+void MainWindow::onAlgorithmParamChanged()
+{
+    if (isSyncingParams_) {
+        return;
+    }
+    if (ui->chkAutoUpdate && ui->chkAutoUpdate->isChecked()) {
+        if (ui->btnApplyN5 && ui->btnApplyN5->isEnabled()
+            && n5State_ != N5UiState::Processing && !isBatchEnhancing_) {
+            onApplyN5Clicked();
+        }
+    }
+}
+
+void MainWindow::onResetAlgorithmParamsClicked()
+{
+    isSyncingParams_ = true;
+    ui->spnParamRadius->setValue(3);
+    ui->sldParamRadius->setValue(3);
+
+    ui->spnParamEps->setValue(0.101);
+    ui->sldParamEps->setValue(101);
+
+    ui->spnParamH->setValue(7.6);
+    ui->sldParamH->setValue(76);
+
+    ui->spnParamGamma->setValue(2.00);
+    ui->sldParamGamma->setValue(200);
+
+    ui->spnParamAlpha->setValue(0.46);
+    ui->sldParamAlpha->setValue(46);
+
+    ui->cmbParamMode->setCurrentIndex(0);
+    ui->cmbParamDetailNorm->setCurrentIndex(0);
+
+    ui->chkParamAdaptiveNlm->setChecked(false);
+    ui->chkAutoUpdate->setChecked(false);
+    isSyncingParams_ = false;
+
+    appendLog(tr("Đã khôi phục thông số thuật toán về mặc định (Paper): r=3, eps=0.101, h=7.6, gamma=2.00, alpha=0.46."));
+
+    if (ui->chkAutoUpdate->isChecked() && ui->btnApplyN5->isEnabled()) {
+        onApplyN5Clicked();
     }
 }
 
