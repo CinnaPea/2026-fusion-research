@@ -95,6 +95,8 @@ private slots:
     void onApplyN5Clicked();
     void onEnhanceAllClicked();
     void onResetN5Clicked();
+    void onAlgorithmParamChanged();
+    void onResetAlgorithmParamsClicked();
 
     // Worker thread response slots
     void onSingleWorkerFinished(const EnhanceJobRequest &request,
@@ -162,6 +164,7 @@ private:
     std::vector<PairItemEntry> displayedItems_;
 
     bool isUpdatingControls_ = false;
+    bool isSyncingParams_ = false;
 
     qart::application::ApplicationController appController_;
 
