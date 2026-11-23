@@ -722,10 +722,26 @@
                    </item>
                    <item>
                     <widget class="QGroupBox" name="grpAlgorithmParams">
+                     <property name="enabled">
+                      <bool>false</bool>
+                     </property>
                      <property name="title">
-                      <string>2. Algorithm Parameters (Paper)</string>
+                      <string>2. Thông số thuật toán (Thử nghiệm — chưa khả dụng)</string>
                      </property>
                      <layout class="QVBoxLayout" name="layoutAlgorithmParams">
+                      <item>
+                       <widget class="QLabel" name="lblParamNotice">
+                        <property name="text">
+                         <string>Thử nghiệm — chưa khả dụng trong bản hiện tại</string>
+                        </property>
+                        <property name="styleSheet">
+                         <string>color: #e5a93c; font-style: italic; font-size: 11px; padding: 2px;</string>
+                        </property>
+                        <property name="alignment">
+                         <set>Qt::AlignmentFlag::AlignCenter</set>
+                        </property>
+                       </widget>
+                      </item>
                       <property name="spacing">
                        <number>4</number>
                       </property>

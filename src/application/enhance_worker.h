@@ -8,7 +8,10 @@
 #include <filesystem>
 #include <vector>
 #include <atomic>
+#include <optional>
 #include "application/application_controller.h"
+#include "core/domain/datasets/dataset_pair.h"
+#include "core/domain/validation/pair_validation_result.h"
 
 struct EnhanceJobRequest {
     quint64 sessionId = 0;
@@ -19,8 +22,61 @@ struct EnhanceJobRequest {
     qart::application::ThermalProcessingMode mode = qart::application::ThermalProcessingMode::Bypass;
     bool isSkipped = false;
     QString skipReason;
+    std::optional<qart::core::domain::datasets::DatasetPair> pair;
+    std::optional<qart::core::domain::validation::PairValidationResult> validationResult;
 };
 Q_DECLARE_METATYPE(EnhanceJobRequest)
+
+// Request & Result for asynchronous preview image decoding (off GUI thread)
+struct PreviewJobRequest {
+    quint64 sessionId = 0;
+    quint64 requestId = 0;
+    int itemIndex = -1;
+    std::optional<qart::core::domain::datasets::DatasetPair> pair;
+    std::optional<qart::core::domain::validation::PairValidationResult> validationResult;
+    std::filesystem::path datasetRoot;
+};
+Q_DECLARE_METATYPE(PreviewJobRequest)
+
+struct PreviewJobResult {
+    quint64 sessionId = 0;
+    quint64 requestId = 0;
+    int itemIndex = -1;
+    QString pairId;
+    std::optional<qart::core::domain::validation::PairValidationResult> validationResult;
+    QImage visibleImage;
+    QImage thermalImage;
+    bool visFileExists = false;
+    bool thrFileExists = false;
+    bool visDecodeSuccess = false;
+    bool thrDecodeSuccess = false;
+    int irChannels = 0;
+    QString channelDesc;
+    QString errorMessage;
+};
+Q_DECLARE_METATYPE(PreviewJobResult)
+
+// Worker thread for background preview loading (no GUI blocking)
+class PreviewWorkerThread : public QThread
+{
+    Q_OBJECT
+
+public:
+    explicit PreviewWorkerThread(PreviewJobRequest request, QObject *parent = nullptr);
+    ~PreviewWorkerThread() override;
+
+    [[nodiscard]] quint64 sessionId() const noexcept { return request_.sessionId; }
+    [[nodiscard]] quint64 requestId() const noexcept { return request_.requestId; }
+
+signals:
+    void previewFinished(const PreviewJobResult &result);
+
+protected:
+    void run() override;
+
+private:
+    PreviewJobRequest request_;
+};
 
 // Worker thread for single-pair processing
 class SingleEnhanceWorkerThread : public QThread

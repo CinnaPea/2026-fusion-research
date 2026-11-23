@@ -127,6 +127,8 @@ private slots:
                                int skippedCount,
                                int cancelledCount);
 
+    void onPreviewFinished(const PreviewJobResult &result);
+
 private:
     void setupUiControls();
     void loadDatasetFromDirectory(const QString &dirPath);
@@ -145,9 +147,11 @@ private:
     // Thread lifecycle & invalidation helpers
     void retireSingleWorker();
     void retireBatchWorker();
+    void retirePreviewWorker();
     void pruneFinishedRetiredWorkers();
     void stopAllWorkersAndWait();
     void invalidateActiveSessionAndWorkers(bool clearOriginalViewer = true);
+    void renderImageFromMemory(QLabel *label, const QImage &image);
 
     [[nodiscard]]
     static QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status);
@@ -181,10 +185,16 @@ private:
     // Threading
     QPointer<SingleEnhanceWorkerThread> singleWorker_;
     QPointer<BatchEnhanceWorkerThread> batchWorker_;
+    QPointer<PreviewWorkerThread> previewWorker_;
     std::vector<QPointer<QThread>> pendingRetiredWorkers_;
     quint64 currentSessionId_ = 0;
     quint64 currentRequestId_ = 0;
     quint64 currentBatchId_ = 0;
+    quint64 currentPreviewRequestId_ = 0;
+
+    // In-memory decoded preview cache
+    QImage cachedVisibleImage_;
+    QImage cachedThermalImage_;
 
     // Storage for Phase 2 results
     std::vector<Phase2Record> phase2Results_;

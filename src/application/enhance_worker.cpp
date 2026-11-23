@@ -189,11 +189,27 @@ void BatchEnhanceWorkerThread::run()
                 break;
             }
 
-            const auto &job = requests_[i];
+            auto &job = requests_[i];
             QElapsedTimer timer;
             timer.start();
 
             try {
+                // Background validation if not yet validated
+                if (!job.isSkipped && !job.validationResult.has_value() && job.pair.has_value()) {
+                    try {
+                        job.validationResult = workerController.getOrValidatePair(*job.pair);
+                        if (!job.validationResult->thermalDecoded()) {
+                            job.isSkipped = true;
+                            const std::string reason = job.validationResult->message().value_or(
+                                std::string(qart::core::domain::validation::toString(job.validationResult->status())));
+                            job.skipReason = QString("Validation failed: %1").arg(QString::fromStdString(reason));
+                        }
+                    } catch (const std::exception &ex) {
+                        job.isSkipped = true;
+                        job.skipReason = QString("Validation error: %1").arg(ex.what());
+                    }
+                }
+
                 if (job.isSkipped) {
                     skippedCount++;
                     emit jobStepFinished(sessionId_,
@@ -278,4 +294,112 @@ void BatchEnhanceWorkerThread::run()
     }
 
     emit batchFinished(sessionId_, batchId_, total, successCount, errorCount, skippedCount, cancelledCount);
+}
+
+// ---------------------------------------------------------------------------
+// PreviewWorkerThread
+// ---------------------------------------------------------------------------
+
+PreviewWorkerThread::PreviewWorkerThread(PreviewJobRequest request, QObject *parent)
+    : QThread(parent)
+    , request_(std::move(request))
+{
+    qRegisterMetaType<PreviewJobRequest>("PreviewJobRequest");
+    qRegisterMetaType<PreviewJobResult>("PreviewJobResult");
+}
+
+PreviewWorkerThread::~PreviewWorkerThread()
+{
+    requestInterruption();
+    if (isRunning()) {
+        wait();
+    }
+}
+
+void PreviewWorkerThread::run()
+{
+    PreviewJobResult result;
+    result.sessionId = request_.sessionId;
+    result.requestId = request_.requestId;
+    result.itemIndex = request_.itemIndex;
+    if (request_.pair.has_value()) {
+        result.pairId = QString::fromStdString(request_.pair->pairId());
+    }
+
+    try {
+        if (isInterruptionRequested() || !request_.pair.has_value()) return;
+
+        // 1. Validation in background thread if not yet validated
+        qart::application::ApplicationController workerController;
+        if (request_.validationResult.has_value()) {
+            result.validationResult = *request_.validationResult;
+        } else {
+            result.validationResult = workerController.getOrValidatePair(*request_.pair);
+        }
+
+        if (isInterruptionRequested()) return;
+
+        // 2. Decode visible image off GUI thread
+        const auto visPath = request_.datasetRoot / request_.pair->visibleRelativePath();
+        std::error_code ec;
+        if (std::filesystem::exists(visPath, ec) && std::filesystem::is_regular_file(visPath, ec)) {
+            result.visFileExists = true;
+            QImage visImg(QString::fromStdString(visPath.string()));
+            if (!visImg.isNull()) {
+                result.visDecodeSuccess = true;
+                result.visibleImage = std::move(visImg);
+            }
+        }
+
+        if (isInterruptionRequested()) return;
+
+        // 3. Decode thermal image off GUI thread
+        const auto thrPath = request_.datasetRoot / request_.pair->thermalRelativePath();
+        if (std::filesystem::exists(thrPath, ec) && std::filesystem::is_regular_file(thrPath, ec)) {
+            result.thrFileExists = true;
+            QImage thrImg(QString::fromStdString(thrPath.string()));
+            if (!thrImg.isNull()) {
+                result.thrDecodeSuccess = true;
+                result.thermalImage = std::move(thrImg);
+            }
+
+            // Inspect channels with cv::imread off GUI thread
+            try {
+                const cv::Mat inspectMat = cv::imread(thrPath.string(), cv::IMREAD_UNCHANGED);
+                if (!inspectMat.empty()) {
+                    result.irChannels = inspectMat.channels();
+                }
+            } catch (...) {
+                result.irChannels = 0;
+            }
+
+            // Construct modality / channel description off GUI thread
+            if (result.irChannels == 3) {
+                result.channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | 3 kênh (Colormap/Ảnh màu)\n"
+                                             "Đầu vào grayscale đã chuẩn bị: %1 x %2 px (BGR → Grayscale uint8)\n"
+                                             "[Ghi chú: Giữ nguyên biểu diễn, không tự giải mã bảng màu]")
+                                         .arg(result.thermalImage.width())
+                                         .arg(result.thermalImage.height());
+            } else if (result.irChannels == 1) {
+                result.channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | 1 kênh đơn sắc (Grayscale uint8)\n"
+                                             "Đầu vào grayscale đã chuẩn bị: %1 x %2 px (Đơn kênh nguyên bản)")
+                                         .arg(result.thermalImage.width())
+                                         .arg(result.thermalImage.height());
+            } else {
+                result.channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | Modality: Thermal (A2)")
+                                         .arg(result.thermalImage.width())
+                                         .arg(result.thermalImage.height());
+            }
+        }
+
+        if (isInterruptionRequested()) return;
+
+        emit previewFinished(result);
+    } catch (const std::exception &ex) {
+        result.errorMessage = ex.what();
+        emit previewFinished(result);
+    } catch (...) {
+        result.errorMessage = "Lỗi không xác định khi giải mã ảnh preview.";
+        emit previewFinished(result);
+    }
 }

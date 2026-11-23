@@ -325,12 +325,15 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    if ((batchWorker_ && batchWorker_->isRunning()) || (singleWorker_ && singleWorker_->isRunning())) {
+    if ((batchWorker_ && batchWorker_->isRunning())
+        || (singleWorker_ && singleWorker_->isRunning())
+        || (previewWorker_ && previewWorker_->isRunning())) {
         appendLog("Window closing: waiting for active worker threads to finish safely...");
     }
     currentSessionId_++;
     currentRequestId_++;
     currentBatchId_++;
+    currentPreviewRequestId_++;
     isBatchEnhancing_ = false;
     isBatchCancelling_ = false;
     stopAllWorkersAndWait();
@@ -342,6 +345,7 @@ MainWindow::~MainWindow()
     currentSessionId_++;
     currentRequestId_++;
     currentBatchId_++;
+    currentPreviewRequestId_++;
     stopAllWorkersAndWait();
     delete ui;
 }
@@ -395,6 +399,24 @@ void MainWindow::retireBatchWorker()
     batchWorker_.clear();
 }
 
+void MainWindow::retirePreviewWorker()
+{
+    pruneFinishedRetiredWorkers();
+    if (!previewWorker_) {
+        previewWorker_.clear();
+        return;
+    }
+
+    disconnect(previewWorker_.data(), nullptr, this, nullptr);
+    previewWorker_->requestInterruption();
+    if (previewWorker_->isRunning()) {
+        pendingRetiredWorkers_.emplace_back(previewWorker_.data());
+    } else {
+        previewWorker_->deleteLater();
+    }
+    previewWorker_.clear();
+}
+
 void MainWindow::stopAllWorkersAndWait()
 {
     if (batchWorker_) {
@@ -405,6 +427,10 @@ void MainWindow::stopAllWorkersAndWait()
     if (singleWorker_) {
         disconnect(singleWorker_.data(), nullptr, this, nullptr);
         singleWorker_->requestInterruption();
+    }
+    if (previewWorker_) {
+        disconnect(previewWorker_.data(), nullptr, this, nullptr);
+        previewWorker_->requestInterruption();
     }
     for (const auto &retired : pendingRetiredWorkers_) {
         if (retired) {
@@ -430,6 +456,13 @@ void MainWindow::stopAllWorkersAndWait()
         delete singleWorker_.data();
         singleWorker_.clear();
     }
+    if (previewWorker_) {
+        if (previewWorker_->isRunning()) {
+            previewWorker_->wait();
+        }
+        delete previewWorker_.data();
+        previewWorker_.clear();
+    }
     for (auto &retired : pendingRetiredWorkers_) {
         if (retired) {
             if (retired->isRunning()) {
@@ -447,9 +480,11 @@ void MainWindow::invalidateActiveSessionAndWorkers(bool clearOriginalViewer)
     currentSessionId_++;
     currentRequestId_++;
     currentBatchId_++;
+    currentPreviewRequestId_++;
 
     retireBatchWorker();
     retireSingleWorker();
+    retirePreviewWorker();
 
     isBatchEnhancing_ = false;
     isBatchCancelling_ = false;
@@ -506,6 +541,9 @@ void MainWindow::setupUiControls()
     ui->spnSampleCount->setValue(5);
     ui->lblSampleCountLabel->setVisible(false);
     ui->spnSampleCount->setVisible(false);
+
+    ui->grpAlgorithmParams->setEnabled(false);
+    ui->grpAlgorithmParams->setToolTip("Thử nghiệm — chưa khả dụng trong bản hiện tại");
 
     isUpdatingControls_ = false;
 }
@@ -876,123 +914,284 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
             return;
         }
 
-        // On-demand validate current selected pair
         PairItemEntry &entry = displayedItems_[index];
-        if (!entry.validationResult.has_value()) {
-            entry.validationResult = appController_.getOrValidatePair(entry.pair);
-        }
 
-        // Update list item text and color with actual validated status
-        PairValidationStatus status = entry.validationResult->status();
-        QString tagText = getStatusTagText(status);
-        QString colorHex = getStatusColorHex(status);
+        // Display current known status (or pending)
+        QString tagText = entry.validationResult.has_value()
+                              ? getStatusTagText(entry.validationResult->status())
+                              : "CHỜ KIỂM ĐỊNH";
+        QString colorHex = entry.validationResult.has_value()
+                               ? getStatusColorHex(entry.validationResult->status())
+                               : "#E5A93C";
 
         // Check if in manual queue
-        const bool isManualQueued =
-            appController_.isManuallyQueued(
-                entry.pair.pairId()
-            );
+        const bool isManualQueued = appController_.isManuallyQueued(entry.pair.pairId());
         QString inQueueSuffix = isManualQueued ? " [IN QUEUE]" : "";
-
         QString sourcePrefix = entry.sourceTag.isEmpty() ? "" : (entry.sourceTag + " ");
         item->setText(QString("[%1] %2%3 (%4)%5")
                           .arg(tagText, sourcePrefix, QString::fromStdString(entry.pair.sourceStem()), QString::fromStdString(entry.pair.pairId()), inQueueSuffix));
         item->setForeground(QBrush(QColor(colorHex)));
 
-        displayPair(entry);
+        // Immediate lightweight UI metadata update
+        ui->lblCurrentPairId->setText(QString("Cặp ảnh: %1 (Stem: %2 | Partition: %3)")
+                                          .arg(QString::fromStdString(entry.pair.pairId()),
+                                               QString::fromStdString(entry.pair.sourceStem()),
+                                               QString::fromStdString(entry.pair.partitionId().value())));
 
-        // Update Tab 2 and discard stale N5 cache when switching pairs outside active batch runs
+        // Clear in-memory decoded image cache for previous pair
+        cachedVisibleImage_ = QImage();
+        cachedThermalImage_ = QImage();
+
+        ui->lblPairStatus->setText("Trạng thái: Đang nạp ảnh...");
+        ui->lblPairStatus->setStyleSheet("background-color: #3b2d18; color: #E5A93C; padding: 4px 10px; border-radius: 4px; font-weight: bold;");
+        ui->lblPairStatusMessage->setText("Đang đọc và kiểm định ảnh trong luồng nền...");
+
+        ui->lblVisibleImage->setText("Đang nạp ảnh Visible...");
+        ui->lblVisibleImage->setStyleSheet("background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;");
+        ui->lblVisibleImage->setPixmap(QPixmap());
+        ui->lblThermalImage->setText("Đang nạp ảnh Thermal...");
+        ui->lblThermalImage->setStyleSheet("background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;");
+        ui->lblThermalImage->setPixmap(QPixmap());
+
+        // Update Tab 2 outside active batch runs
         if (!isBatchEnhancing_) {
-            const QString newPairId = QString::fromStdString(entry.pair.pairId());
-            if (newPairId != activeN5PairId_ || cachedN5OriginalPixmap_.isNull()) {
-                updateQualityN5Tab(entry);
+            activeN5PairId_ = QString::fromStdString(entry.pair.pairId());
+            cachedN5OriginalPixmap_ = QPixmap();
+            cachedN5EnhancedPixmap_ = QPixmap();
+            if (ui->viewerN5Original) {
+                ui->viewerN5Original->clearImage("Đang nạp ảnh nhiệt...");
             }
+            if (ui->viewerN5Enhanced) {
+                ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
+            }
+            ui->btnApplyN5->setEnabled(false);
+            ui->lblN5Status->setText("Trạng thái: Đang nạp...");
+            ui->lblN5Status->setStyleSheet("background-color: #3b2d18; color: #E5A93C; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+            ui->lblN5EnhancedInfo->setText("Thời gian: — | Trạng thái: Đang nạp ảnh...");
         }
+
+        // Spawn async PreviewWorkerThread off GUI thread
+        retirePreviewWorker();
+        currentPreviewRequestId_++;
+
+        PreviewJobRequest req;
+        req.sessionId = currentSessionId_;
+        req.requestId = currentPreviewRequestId_;
+        req.itemIndex = index;
+        req.pair = entry.pair;
+        req.validationResult = entry.validationResult;
+        req.datasetRoot = appController_.datasetRoot();
+
+        previewWorker_ = new PreviewWorkerThread(std::move(req), this);
+        connect(previewWorker_.data(), &PreviewWorkerThread::previewFinished,
+                this, &MainWindow::onPreviewFinished);
+        connect(previewWorker_.data(), &QThread::finished,
+                previewWorker_.data(), &QObject::deleteLater);
+        previewWorker_->start();
+
     } catch (const std::exception &ex) {
         ui->lblSystemStatus->setText(QString("Lỗi chọn cặp ảnh: %1").arg(ex.what()));
     }
 }
 
-void MainWindow::displayPair(const PairItemEntry &entry) {
-    try {
-        const auto &pair = entry.pair;
-        ui->lblCurrentPairId->setText(QString("Cặp ảnh: %1 (Stem: %2 | Partition: %3)")
-                                          .arg(QString::fromStdString(pair.pairId()), QString::fromStdString(pair.sourceStem()), QString::fromStdString(pair.partitionId().value())));
+void MainWindow::onPreviewFinished(const PreviewJobResult &result)
+{
+    if (result.sessionId != currentSessionId_ || result.requestId != currentPreviewRequestId_) {
+        // Drop stale preview results (e.g. user scrolled past quickly)
+        return;
+    }
 
-        PairValidationStatus status = PairValidationStatus::Valid;
-        QString descText = "Chưa kiểm định chi tiết.";
-        QString messageText = "";
+    if (result.itemIndex < 0 || result.itemIndex >= static_cast<int>(displayedItems_.size())) {
+        return;
+    }
 
-        std::optional<int> visWidth, visHeight, thrWidth, thrHeight;
-        bool visDecoded = false, thrDecoded = false;
+    auto &entry = displayedItems_[result.itemIndex];
+    entry.validationResult = result.validationResult;
 
-        if (entry.validationResult.has_value()) {
-            const auto &res = *entry.validationResult;
-            status = res.status();
-            descText = getStatusDescription(status);
-            if (res.message().has_value()) {
-                messageText = QString::fromStdString(*res.message());
-            }
-            visDecoded = res.visibleDecoded();
-            thrDecoded = res.thermalDecoded();
-            if (res.visibleDimensions().has_value()) {
-                visWidth = res.visibleDimensions()->width();
-                visHeight = res.visibleDimensions()->height();
-            }
-            if (res.thermalDimensions().has_value()) {
-                thrWidth = res.thermalDimensions()->width();
-                thrHeight = res.thermalDimensions()->height();
-            }
-        }
-
+    // Update list widget item status text & color
+    if (auto *listItem = ui->lstImagePairs->item(result.itemIndex)) {
+        PairValidationStatus status = result.validationResult.has_value()
+                                          ? result.validationResult->status()
+                                          : PairValidationStatus::MissingThermal;
         QString tagText = getStatusTagText(status);
         QString colorHex = getStatusColorHex(status);
+        const bool isManualQueued = appController_.isManuallyQueued(entry.pair.pairId());
+        QString inQueueSuffix = isManualQueued ? " [IN QUEUE]" : "";
+        QString sourcePrefix = entry.sourceTag.isEmpty() ? "" : (entry.sourceTag + " ");
+        listItem->setText(QString("[%1] %2%3 (%4)%5")
+                              .arg(tagText, sourcePrefix, QString::fromStdString(entry.pair.sourceStem()), QString::fromStdString(entry.pair.pairId()), inQueueSuffix));
+        listItem->setForeground(QBrush(QColor(colorHex)));
+    }
 
-        if (status == PairValidationStatus::DimensionMismatch) {
-            tagText = "LỆCH KÍCH THƯỚC (CHỜ CĂN CHỈNH)";
-            colorHex = "#D97706";
-            ui->lblPairStatusMessage->setText(
-                QString("Cặp nguồn hợp lệ để nghiên cứu căn chỉnh (Phase 3). "
-                        "Chưa đủ điều kiện xử lý chung theo pixel "
-                        "(Visible: %1x%2 px, Thermal: %3x%4 px). "
-                        "Hệ thống không tự resize để né kiểm định.")
-                    .arg(visWidth.value_or(0))
-                    .arg(visHeight.value_or(0))
-                    .arg(thrWidth.value_or(0))
-                    .arg(thrHeight.value_or(0)));
-        } else if (!messageText.isEmpty()) {
-            ui->lblPairStatusMessage->setText(QString("Chi tiết: %1 | %2").arg(messageText, descText));
+    // Cache the decoded QImages in memory
+    cachedVisibleImage_ = result.visibleImage;
+    cachedThermalImage_ = result.thermalImage;
+
+    // Status badge & description on Tab 1
+    PairValidationStatus status = result.validationResult.has_value()
+                                      ? result.validationResult->status()
+                                      : PairValidationStatus::MissingThermal;
+    QString descText = getStatusDescription(status);
+    QString messageText = (result.validationResult.has_value() && result.validationResult->message().has_value())
+                              ? QString::fromStdString(*result.validationResult->message())
+                              : "";
+
+    std::optional<int> visWidth, visHeight, thrWidth, thrHeight;
+    if (result.validationResult.has_value() && result.validationResult->visibleDimensions().has_value()) {
+        visWidth = result.validationResult->visibleDimensions()->width();
+        visHeight = result.validationResult->visibleDimensions()->height();
+    }
+    if (result.validationResult.has_value() && result.validationResult->thermalDimensions().has_value()) {
+        thrWidth = result.validationResult->thermalDimensions()->width();
+        thrHeight = result.validationResult->thermalDimensions()->height();
+    }
+
+    QString tagText = getStatusTagText(status);
+    QString colorHex = getStatusColorHex(status);
+
+    if (status == PairValidationStatus::DimensionMismatch) {
+        tagText = "LỆCH KÍCH THƯỚC (CHỜ CĂN CHỈNH)";
+        colorHex = "#D97706";
+        ui->lblPairStatusMessage->setText(
+            QString("Cặp nguồn hợp lệ để nghiên cứu căn chỉnh (Phase 3). "
+                    "Chưa đủ điều kiện xử lý chung theo pixel "
+                    "(Visible: %1x%2 px, Thermal: %3x%4 px). "
+                    "Hệ thống không tự resize để né kiểm định.")
+                .arg(visWidth.value_or(0))
+                .arg(visHeight.value_or(0))
+                .arg(thrWidth.value_or(0))
+                .arg(thrHeight.value_or(0)));
+    } else if (!messageText.isEmpty()) {
+        ui->lblPairStatusMessage->setText(QString("Chi tiết: %1 | %2").arg(messageText, descText));
+    } else {
+        ui->lblPairStatusMessage->setText(QString("Chi tiết: %1").arg(descText));
+    }
+
+    ui->lblPairStatus->setText(QString("Trạng thái: %1").arg(tagText));
+    ui->lblPairStatus->setStyleSheet(QString("background-color: %1; color: #FFFFFF; padding: 4px 10px; border-radius: 4px; font-weight: bold;")
+                                         .arg(colorHex));
+
+    // Render Visible Image from in-memory QImage
+    if (result.visDecodeSuccess && !cachedVisibleImage_.isNull()) {
+        renderImageFromMemory(ui->lblVisibleImage, cachedVisibleImage_);
+    } else if (!result.visFileExists) {
+        ui->lblVisibleImage->setText("[!] Không tìm thấy file ảnh trên đĩa");
+        ui->lblVisibleImage->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
+        ui->lblVisibleImage->setPixmap(QPixmap());
+        appendLog(QString("Failed to load VIS image: %1").arg(QString::fromStdString(entry.pair.visibleRelativePath())));
+    } else {
+        ui->lblVisibleImage->setText("[!] Không thể giải mã dữ liệu ảnh");
+        ui->lblVisibleImage->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
+        ui->lblVisibleImage->setPixmap(QPixmap());
+        appendLog(QString("Rejected VIS file: %1").arg(QString::fromStdString(entry.pair.visibleRelativePath())));
+    }
+
+    const bool visOk = result.validationResult.has_value() && result.validationResult->visibleDecoded();
+    QString visDimStr = (visWidth.has_value() && visHeight.has_value())
+                            ? QString("%1 x %2 px").arg(*visWidth).arg(*visHeight)
+                            : "--";
+    ui->lblVisibleInfo->setText(QString("File: %1\nKích thước: %2 | OpenCV Decode: %3")
+                                    .arg(QString::fromStdString(entry.pair.visibleRelativePath()), visDimStr)
+                                    .arg(visOk ? "OK" : "Lỗi"));
+
+    // Render Thermal Image from in-memory QImage
+    if (result.thrDecodeSuccess && !cachedThermalImage_.isNull()) {
+        renderImageFromMemory(ui->lblThermalImage, cachedThermalImage_);
+    } else if (!result.thrFileExists) {
+        ui->lblThermalImage->setText("[!] Không tìm thấy file ảnh trên đĩa");
+        ui->lblThermalImage->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
+        ui->lblThermalImage->setPixmap(QPixmap());
+        appendLog(QString("Failed to load IR image: %1").arg(QString::fromStdString(entry.pair.thermalRelativePath())));
+    } else {
+        ui->lblThermalImage->setText("[!] Không thể giải mã dữ liệu ảnh");
+        ui->lblThermalImage->setStyleSheet("background-color: #2b1d1d; color: #ff6b6b; border: 1px solid #d32f2f; border-radius: 6px; font-weight: bold;");
+        ui->lblThermalImage->setPixmap(QPixmap());
+        appendLog(QString("Rejected IR file: %1").arg(QString::fromStdString(entry.pair.thermalRelativePath())));
+    }
+
+    const bool thrOk = result.validationResult.has_value() && result.validationResult->thermalDecoded();
+    QString thrDimStr = (thrWidth.has_value() && thrHeight.has_value())
+                            ? QString("%1 x %2 px").arg(*thrWidth).arg(*thrHeight)
+                            : "--";
+    ui->lblThermalInfo->setText(QString("File: %1\nKích thước: %2 | OpenCV Decode: %3")
+                                    .arg(QString::fromStdString(entry.pair.thermalRelativePath()), thrDimStr)
+                                    .arg(thrOk ? "OK" : "Lỗi"));
+
+    // Update Tab 2 (N5 Viewer) with in-memory decoded image without disk I/O
+    if (!isBatchEnhancing_) {
+        activeN5PairId_ = result.pairId;
+        activeThermalValid_ = thrOk;
+
+        if (result.thrDecodeSuccess && !cachedThermalImage_.isNull()) {
+            cachedN5OriginalPixmap_ = QPixmap::fromImage(cachedThermalImage_);
+            ui->lblN5OriginalInfo->setText(QString("File: %1\n%2")
+                                               .arg(QString::fromStdString(entry.pair.thermalRelativePath()), result.channelDesc));
+            ui->viewerN5Original->setPixmap(cachedN5OriginalPixmap_, false);
+            ui->viewerN5Original->fitToView();
+        } else if (!result.thrFileExists) {
+            cachedN5OriginalPixmap_ = QPixmap();
+            ui->lblN5OriginalInfo->setText("Không tìm thấy file ảnh nhiệt trên đĩa.");
+            ui->viewerN5Original->clearImage("Không tìm thấy file ảnh nhiệt");
         } else {
-            ui->lblPairStatusMessage->setText(QString("Chi tiết: %1").arg(descText));
+            cachedN5OriginalPixmap_ = QPixmap();
+            ui->lblN5OriginalInfo->setText("Không thể giải mã dữ liệu ảnh nhiệt qua QPixmap.");
+            ui->viewerN5Original->clearImage("Lỗi giải mã ảnh nhiệt");
         }
 
-        ui->lblPairStatus->setText(QString("Trạng thái: %1").arg(tagText));
-        ui->lblPairStatus->setStyleSheet(QString("background-color: %1; color: #FFFFFF; padding: 4px 10px; border-radius: 4px; font-weight: bold;")
-                                             .arg(colorHex));
+        // STALE INVALIDATION: Xóa kết quả N5 cũ khi nạp cặp mới
+        cachedN5EnhancedPixmap_ = QPixmap();
+        ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
 
-        // Resolve Full Paths
-        std::filesystem::path visFullPath = appController_.datasetRoot() / pair.visibleRelativePath();
-        std::filesystem::path thrFullPath = appController_.datasetRoot() / pair.thermalRelativePath();
+        if (!activeThermalValid_) {
+            ui->btnApplyN5->setEnabled(false);
+            ui->btnApplyN5->setToolTip(tr("Ảnh nhiệt không đạt điều kiện kiểm định (thiếu file hoặc lỗi giải mã)."));
+            ui->lblN5Status->setText(tr("Trạng thái: Không thể xử lý (Ảnh nhiệt không hợp lệ)"));
+            ui->lblN5Status->setStyleSheet("background-color: #3d1a1a; color: #FF6B6B; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+            ui->lblN5EnhancedInfo->setText(tr("Thời gian: — | Trạng thái: Không thể xử lý"));
+        } else {
+            ui->btnApplyN5->setToolTip(tr("Áp dụng xử lý thuật toán cho ảnh nhiệt."));
+            setN5UiState(N5UiState::NotRun);
+        }
 
-        // Render Visible Image (A1)
-        renderImageToLabel(ui->lblVisibleImage, QString::fromStdString(visFullPath.string()), "VIS");
-        QString visDimStr = (visWidth.has_value() && visHeight.has_value())
-                                ? QString("%1 x %2 px").arg(*visWidth).arg(*visHeight)
-                                : "--";
-        ui->lblVisibleInfo->setText(QString("File: %1\nKích thước: %2 | OpenCV Decode: %3")
-                                        .arg(QString::fromStdString(pair.visibleRelativePath()), visDimStr)
-                                        .arg(visDecoded ? "OK" : (entry.validationResult.has_value() ? "Lỗi" : "Chờ")));
+        ui->viewerN5Enhanced->fitToView();
+    }
+}
 
-        // Render Thermal Image (A2)
-        renderImageToLabel(ui->lblThermalImage, QString::fromStdString(thrFullPath.string()), "IR");
-        QString thrDimStr = (thrWidth.has_value() && thrHeight.has_value())
-                                ? QString("%1 x %2 px").arg(*thrWidth).arg(*thrHeight)
-                                : "--";
-        ui->lblThermalInfo->setText(QString("File: %1\nKích thước: %2 | OpenCV Decode: %3")
-                                        .arg(QString::fromStdString(pair.thermalRelativePath()), thrDimStr)
-                                        .arg(thrDecoded ? "OK" : (entry.validationResult.has_value() ? "Lỗi" : "Chờ")));
-    } catch (const std::exception &ex) {
-        ui->lblSystemStatus->setText(QString("Lỗi hiển thị cặp ảnh: %1").arg(ex.what()));
+void MainWindow::renderImageFromMemory(QLabel *label, const QImage &image)
+{
+    if (image.isNull()) {
+        label->setPixmap(QPixmap());
+        return;
+    }
+
+    QSize targetSize = label->size();
+    if (targetSize.width() < 100 || targetSize.height() < 100) {
+        QWidget *container = label->parentWidget();
+        if (container && container->contentsRect().width() > 100 && container->contentsRect().height() > 100) {
+            targetSize = container->contentsRect().size();
+            targetSize.setWidth(std::max(100, targetSize.width() - 20));
+            targetSize.setHeight(std::max(100, targetSize.height() - 60));
+        } else {
+            targetSize = QSize(400, 300);
+        }
+    }
+
+    int targetW = std::max(50, targetSize.width() - 10);
+    int targetH = std::max(50, targetSize.height() - 10);
+
+    QPixmap pixmap = QPixmap::fromImage(image);
+    QPixmap scaledPixmap = pixmap.scaled(targetW, targetH, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    label->setPixmap(scaledPixmap);
+    label->setStyleSheet("background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;");
+}
+
+void MainWindow::displayPair(const PairItemEntry &entry) {
+    Q_UNUSED(entry);
+    if (!cachedVisibleImage_.isNull()) {
+        renderImageFromMemory(ui->lblVisibleImage, cachedVisibleImage_);
+    }
+    if (!cachedThermalImage_.isNull()) {
+        renderImageFromMemory(ui->lblThermalImage, cachedThermalImage_);
     }
 }
 
@@ -1923,17 +2122,6 @@ void MainWindow::onApplyN5Clicked()
         setN5UiState(N5UiState::Processing, 0, QString(), modeStr);
         ui->viewerN5Enhanced->clearImage(QString("Đang xử lý worker thread (%1)...").arg(modeStr));
         appendLog(QString("Started enhancement for pair %1 (Method: %2)").arg(activeN5PairId_, modeStr));
-        if (mode == qart::application::ThermalProcessingMode::N5PostHalf) {
-            appendLog(QString("[N5 Paper Params] r=%1, eps=%2, h=%3, gamma=%4, alpha=%5 | Mode=%6, Norm=%7%8")
-                          .arg(ui->spnParamRadius->value())
-                          .arg(ui->spnParamEps->value(), 0, 'f', 3)
-                          .arg(ui->spnParamH->value(), 0, 'f', 1)
-                          .arg(ui->spnParamGamma->value(), 0, 'f', 2)
-                          .arg(ui->spnParamAlpha->value(), 0, 'f', 2)
-                          .arg(ui->cmbParamMode->currentText())
-                          .arg(ui->cmbParamDetailNorm->currentText())
-                          .arg(ui->chkParamAdaptiveNlm->isChecked() ? " | Adaptive NLM: Bật" : ""));
-        }
 
         // 2. Retire an toàn worker trước đó (không xóa thread khi còn đang chạy)
         retireSingleWorker();
@@ -2064,11 +2252,7 @@ void MainWindow::onEnhanceAllClicked()
         requests.reserve(displayedItems_.size());
 
         currentBatchId_++;
-        for (auto &item : displayedItems_) {
-            if (!item.validationResult.has_value()) {
-                item.validationResult = appController_.getOrValidatePair(item.pair);
-            }
-
+        for (const auto &item : displayedItems_) {
             EnhanceJobRequest req;
             req.sessionId = currentSessionId_;
             req.requestId = currentBatchId_;
@@ -2076,8 +2260,10 @@ void MainWindow::onEnhanceAllClicked()
             req.datasetId = QString::fromStdString(appController_.currentDatasetId());
             req.thermalFullPath = appController_.datasetRoot() / item.pair.thermalRelativePath();
             req.mode = mode;
+            req.pair = item.pair;
+            req.validationResult = item.validationResult;
 
-            if (!item.validationResult->thermalDecoded()) {
+            if (item.validationResult.has_value() && !item.validationResult->thermalDecoded()) {
                 req.isSkipped = true;
                 req.skipReason = "Lỗi kiểm định ảnh nhiệt";
             }
@@ -2159,6 +2345,9 @@ void MainWindow::onBatchStepFinished(quint64 sessionId,
 
     if (index >= 0 && index < static_cast<int>(displayedItems_.size())
         && displayedItems_[index].pair.pairId() == request.pairId.toStdString()) {
+        if (!displayedItems_[index].validationResult.has_value() && request.validationResult.has_value()) {
+            displayedItems_[index].validationResult = request.validationResult;
+        }
         const auto &entry = displayedItems_[index];
         activeThermalValid_ = entry.validationResult.has_value() && entry.validationResult->thermalDecoded();
         loadThermalSourceIntoN5Viewer(entry.pair, true);
