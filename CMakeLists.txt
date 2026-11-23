@@ -6,7 +6,54 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
-find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc)
+
+if(WIN32)
+    set(QART_DEFAULT_OPENCV5_DIR "C:/msys64/ucrt64/lib/cmake/opencv5")
+elseif(APPLE)
+    set(QART_DEFAULT_OPENCV5_DIR "/opt/homebrew/Cellar/opencv/5.0.0/lib/cmake/opencv5")
+else()
+    set(QART_DEFAULT_OPENCV5_DIR "/usr/local/lib/cmake/opencv5")
+endif()
+
+set(
+        QART_OPENCV5_DIR
+        "${QART_DEFAULT_OPENCV5_DIR}"
+        CACHE PATH
+        "Authoritative OpenCV 5 CMake package directory for QART-Fusion"
+)
+
+if(NOT EXISTS "${QART_OPENCV5_DIR}/OpenCVConfig.cmake")
+    message(
+            FATAL_ERROR
+            "QART OpenCV 5 configuration not found at: "
+            "${QART_OPENCV5_DIR}"
+    )
+endif()
+
+find_package(
+        OpenCV 5
+        CONFIG
+        REQUIRED
+        COMPONENTS core imgcodecs imgproc
+        PATHS "${QART_OPENCV5_DIR}"
+        NO_DEFAULT_PATH
+)
+
+if(
+        OpenCV_VERSION VERSION_LESS "5.0.0"
+        OR OpenCV_VERSION VERSION_GREATER_EQUAL "6.0.0"
+)
+    message(
+            FATAL_ERROR
+            "QART-Fusion requires OpenCV 5.x, but CMake resolved "
+            "OpenCV ${OpenCV_VERSION} from ${OpenCV_DIR}"
+    )
+endif()
+
+message(STATUS "QART OpenCV version: ${OpenCV_VERSION}")
+message(STATUS "QART OpenCV config: ${OpenCV_DIR}")
+message(STATUS "QART OpenCV includes: ${OpenCV_INCLUDE_DIRS}")
+
 find_package(nlohmann_json CONFIG REQUIRED)
 
 qt_standard_project_setup()
@@ -24,6 +71,26 @@ set(
         "Absolute shared QART dataset root used by real-data parity tests"
 )
 
+set(
+        QART_PHASE2_INPUT_FIXTURE_DIR
+        ""
+        CACHE PATH
+        "Python thermal input/BYPASS parity fixture directory"
+)
+
+set(
+        QART_PHASE2_N5_FIXTURE_DIR
+        ""
+        CACHE PATH
+        "Python N5 numerical parity fixture directory"
+)
+
+set(
+        QART_PHASE2_N5_REAL_FIXTURE_DIR
+        ""
+        CACHE PATH
+        "Native-image Python N5 parity fixture directory"
+)
 
 # ---------------------------------------------------------------------------
 # QART-Fusion Qt-independent core
@@ -130,6 +197,9 @@ add_library(qart_core STATIC
         src/core/datasets/tno_adapter.cpp
         src/core/datasets/tno_adapter.h
 
+        src/core/datasets/dvtod_adapter.cpp
+        src/core/datasets/dvtod_adapter.h
+
         src/core/visualization/preview_selection.cpp
         src/core/visualization/preview_selection.h
 
@@ -141,14 +211,36 @@ add_library(qart_core STATIC
 
         src/core/visualization/opencv_preview_renderer.cpp
         src/core/visualization/opencv_preview_renderer.h
+
+        src/core/enhancement/thermal_input.cpp
+        src/core/enhancement/thermal_input.h
+
+        src/core/enhancement/n5_thermal_enhancer.cpp
+        src/core/enhancement/n5_thermal_enhancer.h
 )
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+    set_property(
+            SOURCE src/core/enhancement/n5_thermal_enhancer.cpp
+            APPEND PROPERTY COMPILE_OPTIONS
+            -ffp-contract=off
+            -fno-fast-math
+    )
+elseif(MSVC)
+    set_property(
+            SOURCE src/core/enhancement/n5_thermal_enhancer.cpp
+            APPEND PROPERTY COMPILE_OPTIONS
+            /fp:strict
+    )
+endif()
 
 target_include_directories(qart_core
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-
-        PRIVATE
         ${OpenCV_INCLUDE_DIRS}
+
+#        PRIVATE
+#        ${OpenCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(qart_core
@@ -171,11 +263,16 @@ qt_add_executable(Visual_Thermal_Concept
 
         src/application/application_controller.cpp
         src/application/application_controller.h
+        src/application/interactive_image_viewer.cpp
+        src/application/interactive_image_viewer.h
+        src/application/enhance_worker.cpp
+        src/application/enhance_worker.h
 )
 
 target_include_directories(Visual_Thermal_Concept
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${OpenCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(Visual_Thermal_Concept
@@ -183,6 +280,7 @@ target_link_libraries(Visual_Thermal_Concept
         qart_core
         Qt::Core
         Qt::Widgets
+        ${OpenCV_LIBS}
 )
 
 
@@ -684,6 +782,22 @@ if(BUILD_TESTING)
             COMMAND test_tno_adapter
     )
 
+    add_executable(
+            test_dvtod_adapter
+            tests/datasets/test_dvtod_adapter.cpp
+    )
+
+    target_link_libraries(
+            test_dvtod_adapter
+            PRIVATE
+            qart_core
+    )
+
+    add_test(
+            NAME DVTODAdapterContract
+            COMMAND test_dvtod_adapter
+    )
+
     add_executable(test_preview_selection
             tests/visualization/test_preview_selection.cpp
     )
@@ -745,6 +859,151 @@ if(BUILD_TESTING)
             NAME OpenCvPreviewRendererContract
             COMMAND test_opencv_preview_renderer
     )
+
+    add_executable(test_thermal_input
+            tests/enhancement/test_thermal_input.cpp
+    )
+
+    target_link_libraries(test_thermal_input
+            PRIVATE
+            qart_core
+            ${OpenCV_LIBS}
+    )
+
+    add_test(
+            NAME ThermalInputContract
+            COMMAND test_thermal_input
+    )
+
+    set_tests_properties(ThermalInputContract
+            PROPERTIES LABELS "phase2;thermal_input"
+    )
+
+    add_executable(test_phase2_thermal_input_parity
+            tests/parity/test_phase2_thermal_input_parity.cpp
+    )
+
+    target_link_libraries(test_phase2_thermal_input_parity
+            PRIVATE
+            qart_core
+            ${OpenCV_LIBS}
+    )
+
+    add_executable(test_n5_thermal_enhancer
+            tests/enhancement/test_n5_thermal_enhancer.cpp
+    )
+
+    target_link_libraries(test_n5_thermal_enhancer
+            PRIVATE
+            qart_core
+            ${OpenCV_LIBS}
+    )
+
+    add_test(
+            NAME N5ThermalContract
+            COMMAND test_n5_thermal_enhancer
+    )
+
+    set_tests_properties(N5ThermalContract
+            PROPERTIES LABELS "phase2;enhancement;n5"
+    )
+
+    add_executable(test_phase2_n5_parity
+            tests/parity/test_phase2_n5_parity.cpp
+    )
+
+    target_link_libraries(test_phase2_n5_parity
+            PRIVATE
+            qart_core
+            ${OpenCV_LIBS}
+    )
+
+    add_executable(test_application_thermal_processing
+            tests/application/test_application_thermal_processing.cpp
+            src/application/application_controller.cpp
+    )
+
+    target_link_libraries(test_application_thermal_processing
+            PRIVATE
+            qart_core
+            ${OpenCV_LIBS}
+    )
+
+    add_test(
+            NAME ApplicationThermalProcessingContract
+            COMMAND test_application_thermal_processing
+    )
+
+    set_tests_properties(ApplicationThermalProcessingContract
+            PROPERTIES LABELS "phase2;application;enhancement"
+    )
+
+    if(QART_PHASE2_N5_FIXTURE_DIR)
+        if(NOT EXISTS "${QART_PHASE2_N5_FIXTURE_DIR}/cases.txt")
+            message(FATAL_ERROR
+                    "N5 fixture directory has no cases.txt: "
+                    "${QART_PHASE2_N5_FIXTURE_DIR}"
+            )
+        endif()
+
+        add_test(
+                NAME Phase2N5Parity
+                COMMAND test_phase2_n5_parity
+                "${QART_PHASE2_N5_FIXTURE_DIR}"
+        )
+
+        set_tests_properties(Phase2N5Parity
+                PROPERTIES LABELS "phase2;enhancement;n5;parity"
+        )
+    else()
+        message(STATUS
+                "Phase2N5Parity not registered: "
+                "set QART_PHASE2_N5_FIXTURE_DIR to enable it."
+        )
+    endif()
+
+    if(QART_PHASE2_N5_REAL_FIXTURE_DIR)
+        if(NOT EXISTS "${QART_PHASE2_N5_REAL_FIXTURE_DIR}/cases.txt")
+            message(FATAL_ERROR
+                    "Native N5 fixture directory has no cases.txt: "
+                    "${QART_PHASE2_N5_REAL_FIXTURE_DIR}"
+            )
+        endif()
+
+        add_test(
+                NAME Phase2N5RealParity
+                COMMAND test_phase2_n5_parity
+                "${QART_PHASE2_N5_REAL_FIXTURE_DIR}"
+        )
+
+        set_tests_properties(Phase2N5RealParity
+                PROPERTIES LABELS "phase2;enhancement;n5;parity;native"
+        )
+    endif()
+
+    if(QART_PHASE2_INPUT_FIXTURE_DIR)
+        if(NOT EXISTS "${QART_PHASE2_INPUT_FIXTURE_DIR}/cases.txt")
+            message(FATAL_ERROR
+                    "Phase 2 fixture directory has no cases.txt: "
+                    "${QART_PHASE2_INPUT_FIXTURE_DIR}"
+            )
+        endif()
+
+        add_test(
+                NAME Phase2ThermalInputParity
+                COMMAND test_phase2_thermal_input_parity
+                "${QART_PHASE2_INPUT_FIXTURE_DIR}"
+        )
+
+        set_tests_properties(Phase2ThermalInputParity
+                PROPERTIES LABELS "phase2;thermal_input;parity"
+        )
+    else()
+        message(STATUS
+                "Phase2ThermalInputParity not registered: "
+                "set QART_PHASE2_INPUT_FIXTURE_DIR to enable it."
+        )
+    endif()
 
     if(QART_ENABLE_REAL_DATA_TESTS)
 
@@ -1025,6 +1284,30 @@ if(BUILD_TESTING)
                 TNORealPreviewParity
                 PROPERTIES
                 LABELS "phase1;parity;real_data;tno;preview"
+        )
+
+        add_executable(
+                test_dvtod_real_parity
+                tests/parity/test_dvtod_real_parity.cpp
+        )
+
+        target_link_libraries(
+                test_dvtod_real_parity
+                PRIVATE
+                qart_core
+        )
+
+        add_test(
+                NAME DVTODRealDataParity
+                COMMAND
+                test_dvtod_real_parity
+                "${QART_REAL_DATA_ROOT}"
+        )
+
+        set_tests_properties(
+                DVTODRealDataParity
+                PROPERTIES
+                LABELS "phase1;phase1r;parity;real_data;dvtod"
         )
     endif()
 endif()

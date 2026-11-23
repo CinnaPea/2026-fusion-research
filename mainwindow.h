@@ -5,6 +5,8 @@
 #include <QListWidgetItem>
 #include <QLabel>
 #include <QString>
+#include <QMenu>
+#include <QPointer>
 #include <filesystem>
 #include <optional>
 #include <vector>
@@ -14,6 +16,7 @@
 #include "core/domain/validation/pair_validation_status.h"
 #include "core/manifests/validation_manifest_row.h"
 #include "application/application_controller.h"
+#include "application/enhance_worker.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -27,6 +30,35 @@ struct PairItemEntry {
     QString sourceTag; // "ALL", "AUTO", "MANUAL"
 };
 
+struct Phase2SourceSelection
+{
+    QString datasetId;
+    QString pairId;
+    std::filesystem::path thermalPath;
+};
+
+// 5 standardized process statuses
+enum class N5UiState {
+    NotRun,     // Chưa chạy
+    Processing, // Đang xử lý
+    Completed,  // Hoàn tất
+    Error,      // Lỗi
+    Cancelled   // Đã hủy
+};
+
+struct Phase2Record {
+    QString pairId;
+    QString datasetId;
+    QString partitionId;
+    QString sourceStem;
+    QString thermalRelPath;
+    QString processingMethod; // "N5" or "BYPASS"
+    QString processingVersion; // "N5PostHalf-v1.0" or "BYPASS-v1.0"
+    QString status; // "SUCCESS", "ERROR", "CANCELLED"
+    std::optional<qint64> elapsedMs;
+    QString errorMessage;
+};
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -35,7 +67,11 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+    [[nodiscard]]
+    std::optional<Phase2SourceSelection> selectedPhase2Source() const;
+
 protected:
+    void closeEvent(QCloseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
 
 private slots:
@@ -44,6 +80,7 @@ private slots:
     void onPairSelected(QListWidgetItem *item);
     void onSearchTextChanged(const QString &query) const;
     void onExportCsvClicked();
+    void onExportPhase2Clicked();
     void onDatasetChanged(int index);
     void onPartitionChanged(int index);
     void onViewModeChanged(int index);
@@ -51,13 +88,66 @@ private slots:
     void onFullValidationClicked();
     void onAddToQueueClicked();
     void onClearQueueClicked();
+    void onToggleCollapseClicked();
+
+    // Tab and N5 enhancement slots
+    void onWorkspaceTabChanged(int index);
+    void onApplyN5Clicked();
+    void onEnhanceAllClicked();
+    void onResetN5Clicked();
+    void onAlgorithmParamChanged();
+    void onResetAlgorithmParamsClicked();
+
+    // Worker thread response slots
+    void onSingleWorkerFinished(const EnhanceJobRequest &request,
+                                const QImage &resultImage,
+                                qint64 elapsedMs,
+                                bool success,
+                                const QString &errorMessage);
+
+    void onBatchStepFinished(quint64 sessionId,
+                             quint64 batchId,
+                             int index,
+                             int totalCount,
+                             const EnhanceJobRequest &request,
+                             const QImage &resultImage,
+                             qint64 elapsedMs,
+                             bool success,
+                             const QString &errorMessage,
+                             int successCount,
+                             int errorCount,
+                             int skippedCount,
+                             int cancelledCount);
+
+    void onBatchWorkerFinished(quint64 sessionId,
+                               quint64 batchId,
+                               int totalCount,
+                               int successCount,
+                               int errorCount,
+                               int skippedCount,
+                               int cancelledCount);
 
 private:
     void setupUiControls();
     void loadDatasetFromDirectory(const QString &dirPath);
     void applyFiltersAndModes();
-    void displayPair(const PairItemEntry &entry) const;
-    static void renderImageToLabel(QLabel *label, const QString &imagePath);
+    void displayPair(const PairItemEntry &entry);
+    void renderImageToLabel(QLabel *label, const QString &imagePath, const QString &modality);
+
+    // N5 enhancement helpers
+    bool loadThermalSourceIntoN5Viewer(const qart::core::domain::datasets::DatasetPair &pair, bool fitView);
+    void updateQualityN5Tab(const PairItemEntry &entry);
+    void setN5UiState(N5UiState state, qint64 elapsedMs = 0, const QString &detailMsg = QString(), const QString &methodOverride = QString());
+    void renderCachedN5Images();
+    void appendLog(const QString &message);
+    void updateBatchButtonText();
+
+    // Thread lifecycle & invalidation helpers
+    void retireSingleWorker();
+    void retireBatchWorker();
+    void pruneFinishedRetiredWorkers();
+    void stopAllWorkersAndWait();
+    void invalidateActiveSessionAndWorkers(bool clearOriginalViewer = true);
 
     [[nodiscard]]
     static QString getStatusTagText(qart::core::domain::validation::PairValidationStatus status);
@@ -74,7 +164,29 @@ private:
     std::vector<PairItemEntry> displayedItems_;
 
     bool isUpdatingControls_ = false;
+    bool isSyncingParams_ = false;
 
     qart::application::ApplicationController appController_;
+
+    // N5 single-image state & caching members (decoupled from batch state)
+    N5UiState n5State_ = N5UiState::NotRun;
+    bool activeThermalValid_ = false;
+    bool isBatchEnhancing_ = false;
+    bool isBatchCancelling_ = false;
+    int batchTotalCount_ = 0;
+    QPixmap cachedN5OriginalPixmap_;
+    QPixmap cachedN5EnhancedPixmap_;
+    QString activeN5PairId_;
+
+    // Threading
+    QPointer<SingleEnhanceWorkerThread> singleWorker_;
+    QPointer<BatchEnhanceWorkerThread> batchWorker_;
+    std::vector<QPointer<QThread>> pendingRetiredWorkers_;
+    quint64 currentSessionId_ = 0;
+    quint64 currentRequestId_ = 0;
+    quint64 currentBatchId_ = 0;
+
+    // Storage for Phase 2 results
+    std::vector<Phase2Record> phase2Results_;
 };
 #endif // MAINWINDOW_H

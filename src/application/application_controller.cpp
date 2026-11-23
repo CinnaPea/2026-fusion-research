@@ -5,6 +5,7 @@
 #include "core/datasets/roadscene_adapter.h"
 #include "core/datasets/m3fd_adapter.h"
 #include "core/datasets/tno_adapter.h"
+#include "core/datasets/dvtod_adapter.h"
 #include "core/domain/datasets/dataset_partition_id.h"
 #include "core/domain/imaging/image_dimensions.h"
 #include "core/manifests/csv_validation_manifest_reader.h"
@@ -16,6 +17,7 @@
 #include "core/datasets/canonical_pair_lookup.h"
 #include "core/manifests/csv_validation_manifest_writer.h"
 #include "core/manifests/validation_manifest_row.h"
+#include "core/enhancement/thermal_input.h"
 
 #include <algorithm>
 #include <cctype>
@@ -63,6 +65,45 @@ std::vector<DatasetPair> discoverWithAdapter(
 }
 
 } // namespace
+
+ThermalProcessingResult ApplicationController::processThermal(
+    const cv::Mat& decodedThermal,
+    ThermalProcessingMode mode)
+{
+    if (
+        mode != ThermalProcessingMode::Bypass
+        && mode != ThermalProcessingMode::N5PostHalf
+    ) {
+        throw std::invalid_argument(
+            "Unsupported thermal processing mode"
+        );
+    }
+
+    const cv::Mat prepared =
+        core::enhancement::prepareThermalUint8Plane(
+            decodedThermal
+        );
+
+    if (mode == ThermalProcessingMode::Bypass) {
+        return {
+            core::enhancement::bypassThermal(prepared),
+            ThermalProcessingMode::Bypass
+        };
+    }
+
+    if (!n5Enhancer_) {
+        n5Enhancer_ = std::make_unique<
+            core::enhancement::N5ThermalEnhancer
+        >();
+    }
+
+    auto enhanced = n5Enhancer_->enhance(prepared);
+
+    return {
+        std::move(enhanced.outputImage),
+        ThermalProcessingMode::N5PostHalf
+    };
+}
 
 bool ApplicationController::loadDataset(
     const std::filesystem::path& inputPath,
@@ -164,6 +205,31 @@ bool ApplicationController::loadDataset(
             }
     }
 
+    if (
+        discoveredPairs.empty()
+        && (
+            requestedDatasetId.empty()
+            || requestedDatasetId == "dvtod"
+        )
+    ) {
+        try {
+            core::datasets::DVTODAdapter adapter;
+
+            discoveredPairs =
+                discoverWithAdapter(
+                    adapter,
+                    datasetRoot_
+                );
+
+            detectedDatasetId =
+                adapter.datasetId();
+        }
+        catch (...) {
+            discoveredPairs.clear();
+            detectedDatasetId.clear();
+        }
+    }
+
     if (discoveredPairs.empty()) {
         clearDatasetSession();
         datasetRoot_ = resolveDatasetRoot(inputPath);
@@ -208,6 +274,15 @@ bool ApplicationController::loadDataset(
 
         configuredPartitions = {
             DatasetPartitionId("all")
+        };
+    } else if (detectedDatasetId == "dvtod") {
+        manifestRelativePath =
+            "manifests/dvtod/"
+            "dvtod_validation_schema_2_0.csv";
+
+        configuredPartitions = {
+            DatasetPartitionId("train"),
+            DatasetPartitionId("val")
         };
     } else {
         throw std::runtime_error(
@@ -308,6 +383,8 @@ std::filesystem::path ApplicationController::resolveDatasetRoot(
         || folderName == "roadscene"
         || folderName == "m3fd"
         || folderName == "tno"
+        || folderName == "dvtdo"
+        || folderName == "dvtod"
     ) {
         if (current.has_parent_path()) {
             const std::filesystem::path parent = current.parent_path();
@@ -362,6 +439,19 @@ PairValidationPolicy ApplicationController::validationPolicyForDataset(
             supportedExtensions,
             core::domain::imaging::ImageDimensions(640, 480),
             core::domain::imaging::ImageDimensions(640, 480)
+        };
+    }
+
+    if (datasetId == "dvtod") {
+        const std::vector<std::string> jpgOnly = {
+            ".jpg"
+        };
+
+        return {
+            jpgOnly,
+            jpgOnly,
+            core::domain::imaging::ImageDimensions(1920, 1080),
+            core::domain::imaging::ImageDimensions(640, 512)
         };
     }
 
@@ -678,6 +768,9 @@ void ApplicationController::loadCanonicalValidationManifest()
                 || candidate == "tno"
             ) {
                 detectedDataset = candidate;
+            }
+            else if (candidate == "dvtdo") {
+                detectedDataset = "dvtod";
             }
         }
 

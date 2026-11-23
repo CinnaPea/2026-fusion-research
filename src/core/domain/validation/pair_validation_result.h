@@ -58,6 +58,9 @@ namespace qart::core::domain::validation {
         bool dimensionsMatch() const noexcept;
 
         [[nodiscard]]
+        bool sourcePairValid() const noexcept;
+
+        [[nodiscard]]
         bool isValid() const noexcept;
 
         friend bool operator==(
