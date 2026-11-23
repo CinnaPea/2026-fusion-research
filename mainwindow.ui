@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1220</width>
+    <width>1239</width>
     <height>780</height>
    </rect>
   </property>
@@ -306,7 +306,7 @@
       </widget>
       <widget class="QTabWidget" name="tabMainWorkspaces">
        <property name="currentIndex">
-        <number>1</number>
+        <number>0</number>
        </property>
        <widget class="QWidget" name="tabOriginalPair">
         <attribute name="title">
@@ -653,8 +653,8 @@
                    <rect>
                     <x>0</x>
                     <y>0</y>
-                    <width>376</width>
-                    <height>634</height>
+                    <width>335</width>
+                    <height>700</height>
                    </rect>
                   </property>
                   <layout class="QVBoxLayout" name="layoutScrollN5">
@@ -673,6 +673,19 @@
                    <property name="bottomMargin">
                     <number>4</number>
                    </property>
+                   <item>
+                    <widget class="QCheckBox" name="chkSyncView">
+                     <property name="toolTip">
+                      <string>Tự động đồng bộ tỉ lệ thu phóng (zoom) và vị trí kéo (pan) giữa ảnh trước và sau khi xem chi tiết.</string>
+                     </property>
+                     <property name="text">
+                      <string>Sync zoom/pan</string>
+                     </property>
+                     <property name="checked">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
                    <item>
                     <widget class="QLabel" name="lblN5InputNotice">
                      <property name="font">
@@ -721,6 +734,24 @@
                     </widget>
                    </item>
                    <item>
+                    <widget class="QPushButton" name="btnApplyN5">
+                     <property name="minimumSize">
+                      <size>
+                       <width>0</width>
+                       <height>30</height>
+                      </size>
+                     </property>
+                     <property name="font">
+                      <font>
+                      <bold>true</bold>
+                      </font>
+                     </property>
+                     <property name="text">
+                      <string>Process</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
                     <widget class="QGroupBox" name="grpAlgorithmParams">
                      <property name="enabled">
                       <bool>false</bool>
@@ -729,19 +760,6 @@
                       <string>2. Thông số thuật toán (Thử nghiệm — chưa khả dụng)</string>
                      </property>
                      <layout class="QVBoxLayout" name="layoutAlgorithmParams">
-                      <item>
-                       <widget class="QLabel" name="lblParamNotice">
-                        <property name="text">
-                         <string>Thử nghiệm — chưa khả dụng trong bản hiện tại</string>
-                        </property>
-                        <property name="styleSheet">
-                         <string>color: #e5a93c; font-style: italic; font-size: 11px; padding: 2px;</string>
-                        </property>
-                        <property name="alignment">
-                         <set>Qt::AlignmentFlag::AlignCenter</set>
-                        </property>
-                       </widget>
-                      </item>
                       <property name="spacing">
                        <number>4</number>
                       </property>
@@ -757,6 +775,19 @@
                       <property name="bottomMargin">
                        <number>8</number>
                       </property>
+                      <item>
+                       <widget class="QLabel" name="lblParamNotice">
+                        <property name="styleSheet">
+                         <string>color: #e5a93c; font-style: italic; font-size: 11px; padding: 2px;</string>
+                        </property>
+                        <property name="text">
+                         <string>Thử nghiệm — chưa khả dụng trong bản hiện tại</string>
+                        </property>
+                        <property name="alignment">
+                         <set>Qt::AlignmentFlag::AlignCenter</set>
+                        </property>
+                       </widget>
+                      </item>
                       <item>
                        <layout class="QHBoxLayout" name="layoutParamRadius">
                         <item>
@@ -1117,19 +1148,6 @@
                           </property>
                          </widget>
                         </item>
-                        <item>
-                         <widget class="QCheckBox" name="chkSyncView">
-                          <property name="toolTip">
-                           <string>Tự động đồng bộ tỉ lệ thu phóng (zoom) và vị trí kéo (pan) giữa ảnh trước và sau khi xem chi tiết.</string>
-                          </property>
-                          <property name="text">
-                           <string>Sync zoom/pan</string>
-                          </property>
-                          <property name="checked">
-                           <bool>true</bool>
-                          </property>
-                         </widget>
-                        </item>
                        </layout>
                       </item>
                       <item>
@@ -1149,24 +1167,6 @@
                           </property>
                           <property name="text">
                            <string>Defaults</string>
-                          </property>
-                         </widget>
-                        </item>
-                        <item>
-                         <widget class="QPushButton" name="btnApplyN5">
-                          <property name="minimumSize">
-                           <size>
-                            <width>0</width>
-                            <height>30</height>
-                           </size>
-                          </property>
-                          <property name="font">
-                           <font>
-                            <bold>true</bold>
-                           </font>
-                          </property>
-                          <property name="text">
-                           <string>Process</string>
                           </property>
                          </widget>
                         </item>
@@ -1565,7 +1565,7 @@ Các phương pháp hợp nhất đang trong quá trình đánh giá và nghiệ
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1220</width>
+     <width>1239</width>
      <height>33</height>
     </rect>
    </property>

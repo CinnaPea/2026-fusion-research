@@ -5,6 +5,9 @@
 #include "core/domain/validation/pair_validation_result.h"
 #include "core/domain/validation/pair_validation_status.h"
 
+#include <QDateTime>
+#include <QSaveFile>
+#include <QStringList>
 #include <QCloseEvent>
 #include <QColor>
 #include <QCoreApplication>
@@ -1006,6 +1009,68 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
     }
 
     auto &entry = displayedItems_[result.itemIndex];
+
+    // Reject results that no longer match the item at this index.
+    if (QString::fromStdString(entry.pair.pairId()) != result.pairId) {
+        return;
+    }
+
+    // A worker failure is not evidence that a source file is missing.
+    if (!result.errorMessage.isEmpty()
+        || !result.validationResult.has_value()) {
+        const QString error =
+            !result.errorMessage.isEmpty()
+                ? result.errorMessage
+                : tr("Worker không trả về kết quả kiểm định.");
+
+        appendLog(
+            QString("Preview error [%1]: %2")
+                .arg(result.pairId, error)
+        );
+
+        ui->lblPairStatus->setText(tr("Trạng thái: Lỗi nạp/kiểm định"));
+        ui->lblPairStatus->setStyleSheet(
+            "background-color: #3d1a1a; color: #FF6B6B;"
+            "padding: 4px 10px; border-radius: 4px;"
+            "font-weight: bold;"
+        );
+        ui->lblPairStatusMessage->setText(error);
+
+        ui->lblVisibleImage->setPixmap(QPixmap());
+        ui->lblVisibleImage->setText(tr("Không thể hoàn tất nạp ảnh"));
+        ui->lblThermalImage->setPixmap(QPixmap());
+        ui->lblThermalImage->setText(tr("Không thể hoàn tất nạp ảnh"));
+
+        ui->lblVisibleInfo->setText(
+            tr("Kiểm định chưa hoàn tất — chưa xác định trạng thái giải mã.")
+        );
+        ui->lblThermalInfo->setText(
+            tr("Kiểm định chưa hoàn tất — chưa xác định trạng thái giải mã.")
+        );
+
+        if (!isBatchEnhancing_) {
+            activeN5PairId_ = result.pairId;
+            activeThermalValid_ = false;
+
+            cachedN5OriginalPixmap_ = QPixmap();
+            cachedN5EnhancedPixmap_ = QPixmap();
+
+            ui->lblN5PairInfo->setText(
+                QString("Cặp ảnh: %1").arg(result.pairId)
+            );
+            ui->viewerN5Original->clearImage(tr("Lỗi nạp/kiểm định"));
+            ui->viewerN5Enhanced->clearImage(
+                tr("Chưa có kết quả xử lý")
+            );
+            ui->lblN5OriginalInfo->setText(error);
+
+            setN5UiState(N5UiState::Error, 0, error);
+        }
+
+        // Preserve existing validation data and list status.
+        return;
+    }
+
     entry.validationResult = result.validationResult;
 
     // Update list widget item status text & color
@@ -2258,7 +2323,8 @@ void MainWindow::onEnhanceAllClicked()
             req.requestId = currentBatchId_;
             req.pairId = QString::fromStdString(item.pair.pairId());
             req.datasetId = QString::fromStdString(appController_.currentDatasetId());
-            req.thermalFullPath = appController_.datasetRoot() / item.pair.thermalRelativePath();
+            req.datasetRoot = appController_.datasetRoot();
+            req.thermalFullPath = req.datasetRoot / item.pair.thermalRelativePath();
             req.mode = mode;
             req.pair = item.pair;
             req.validationResult = item.validationResult;
@@ -2343,16 +2409,86 @@ void MainWindow::onBatchStepFinished(quint64 sessionId,
         }
     }
 
-    if (index >= 0 && index < static_cast<int>(displayedItems_.size())
-        && displayedItems_[index].pair.pairId() == request.pairId.toStdString()) {
-        if (!displayedItems_[index].validationResult.has_value() && request.validationResult.has_value()) {
-            displayedItems_[index].validationResult = request.validationResult;
+    activeN5PairId_ = request.pairId;
+    activeThermalValid_ =
+        request.validationResult.has_value()
+        && request.validationResult->thermalDecoded();
+
+    QString sourcePath =
+        QString::fromStdString(request.thermalFullPath.string());
+
+    ui->lblN5PairInfo->setText(
+        QString("Cặp ảnh: %1").arg(request.pairId)
+    );
+
+    if (index >= 0
+        && index < static_cast<int>(displayedItems_.size())
+        && displayedItems_[index].pair.pairId()
+            == request.pairId.toStdString()) {
+        auto &entry = displayedItems_[index];
+
+        if (request.validationResult.has_value()) {
+            entry.validationResult = request.validationResult;
         }
-        const auto &entry = displayedItems_[index];
-        activeThermalValid_ = entry.validationResult.has_value() && entry.validationResult->thermalDecoded();
-        loadThermalSourceIntoN5Viewer(entry.pair, true);
+
+        activeThermalValid_ =
+            entry.validationResult.has_value()
+            && entry.validationResult->thermalDecoded();
+
+        sourcePath =
+            QString::fromStdString(entry.pair.thermalRelativePath());
+
+        ui->lblN5PairInfo->setText(
+            QString("Cặp ảnh: %1 (Stem: %2 | Partition: %3)")
+                .arg(
+                    request.pairId,
+                    QString::fromStdString(entry.pair.sourceStem()),
+                    QString::fromStdString(
+                        entry.pair.partitionId().value()
+                    )
+                )
+        );
+    }
+
+    // Display worker-owned image data; no file loading here.
+    if (!request.sourcePreview.isNull()) {
+        cachedN5OriginalPixmap_ =
+            QPixmap::fromImage(request.sourcePreview);
+
+        ui->viewerN5Original->setPixmap(
+            cachedN5OriginalPixmap_,
+            false
+        );
+        ui->viewerN5Original->fitToView();
+
+        QString sourceInfo =
+            QString("File: %1\nẢnh IR nguồn: %2 x %3 px | %4 kênh")
+                .arg(sourcePath)
+                .arg(request.sourcePreview.width())
+                .arg(request.sourcePreview.height())
+                .arg(request.sourceChannels);
+
+        if (request.sourceChannels > 1) {
+            sourceInfo += tr(
+                "\nHiển thị ảnh IR màu nguồn; "
+                "không tự giải mã bảng màu thành cường độ nhiệt."
+            );
+        }
+
+        ui->lblN5OriginalInfo->setText(sourceInfo);
     } else {
-        activeN5PairId_ = request.pairId;
+        cachedN5OriginalPixmap_ = QPixmap();
+
+        ui->viewerN5Original->clearImage(
+            tr("Không có preview nguồn cho mục này")
+        );
+        ui->lblN5OriginalInfo->setText(
+            QString("File: %1\n%2")
+                .arg(
+                    sourcePath,
+                    tr("Preview nguồn không khả dụng; xem trạng thái xử lý.")
+                )
+        );
     }
 
     const QString modeStr = (request.mode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
@@ -2524,23 +2660,162 @@ void MainWindow::onExportPhase2Clicked()
 {
     if (phase2Results_.empty()) {
         appendLog("Save blocked: no result available.");
-        QMessageBox::warning(this, "Xuất kết quả Phase 2",
-                             "Chưa có kết quả xử lý thực tế nào để xuất báo cáo.\n(Save blocked: no result available.)");
+        QMessageBox::warning(
+            this,
+            tr("Xuất kết quả Phase 2"),
+            tr("Chưa có bản ghi xử lý nào để xuất.")
+        );
         return;
     }
 
-    int successCount = 0;
-    int errorCount = 0;
-    for (const auto &r : phase2Results_) {
-        if (r.status == "SUCCESS") successCount++;
-        else errorCount++;
+    // Freeze the records before opening the modal file dialog.
+    // Workers may finish while the dialog is open.
+    const auto records = phase2Results_;
+    const qlonglong rowCount =
+        static_cast<qlonglong>(records.size());
+
+    const QString suggestedName =
+        QString("phase2_execution_%1.csv").arg(
+            QDateTime::currentDateTime().toString(
+                "yyyyMMdd_HHmmss"
+            )
+        );
+
+    QString outputPath = QFileDialog::getSaveFileName(
+        this,
+        tr("Lưu báo cáo thực thi Phase 2"),
+        suggestedName,
+        tr("CSV (*.csv)")
+    );
+
+    if (outputPath.isEmpty()) {
+        return;
     }
 
-    QMessageBox::information(this, "Phạm vi xuất kết quả Phase 2",
-                             QString("Phạm vi dữ liệu xuất:\n- Tổng số bản ghi: %1\n- Thành công: %2\n- Lỗi: %3\n\nLưu ý: Schema báo cáo Phase 2 đang được trình anh hướng dẫn duyệt trước khi ghi file.")
-                                 .arg(phase2Results_.size())
-                                 .arg(successCount)
-                                 .arg(errorCount));
+    if (!outputPath.endsWith(".csv", Qt::CaseInsensitive)) {
+        outputPath += ".csv";
+
+        // The file dialog did not check this appended filename.
+        if (QFileInfo::exists(outputPath)) {
+            const auto answer = QMessageBox::question(
+                this,
+                tr("Ghi đè báo cáo"),
+                tr("Tệp đã tồn tại:\n%1\n\nGhi đè?")
+                    .arg(outputPath),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No
+            );
+
+            if (answer != QMessageBox::Yes) {
+                return;
+            }
+        }
+    }
+
+    // Always quote fields; embedded quotes become doubled quotes.
+    // This preserves commas, quotes and embedded line breaks.
+    const auto csvField = [](QString value) -> QString {
+        value.replace(
+            QStringLiteral("\""),
+            QStringLiteral("\"\"")
+        );
+
+        return QStringLiteral("\"")
+            + value
+            + QStringLiteral("\"");
+    };
+
+    QString csv = QStringLiteral(
+        "pair_id,dataset_id,processing_method,"
+        "processing_version,status,elapsed_ms,error_message\r\n"
+    );
+
+    for (const auto &record : records) {
+        const QString elapsed =
+            record.elapsedMs.has_value()
+                ? QString::number(*record.elapsedMs)
+                : QString();
+
+        QStringList fields;
+        fields << csvField(record.pairId)
+               << csvField(record.datasetId)
+               << csvField(record.processingMethod)
+               << csvField(record.processingVersion)
+               << csvField(record.status)
+               << csvField(elapsed)
+               << csvField(record.errorMessage);
+
+        csv += fields.join(QLatin1Char(','));
+        csv += QStringLiteral("\r\n");
+    }
+
+    QSaveFile file(outputPath);
+
+    if (!file.open(QIODevice::WriteOnly)) {
+        const QString error = file.errorString();
+
+        appendLog(
+            QString("Phase 2 CSV open failed: %1").arg(error)
+        );
+        QMessageBox::critical(
+            this,
+            tr("Không thể lưu báo cáo"),
+            tr("Không thể mở tệp:\n%1\n\n%2")
+                .arg(outputPath, error)
+        );
+        return;
+    }
+
+    const QByteArray bytes = csv.toUtf8();
+    const qint64 expectedBytes =
+        static_cast<qint64>(bytes.size());
+
+    if (file.write(bytes) != expectedBytes) {
+        const QString error = file.errorString();
+        file.cancelWriting();
+
+        appendLog(
+            QString("Phase 2 CSV write failed: %1").arg(error)
+        );
+        QMessageBox::critical(
+            this,
+            tr("Không thể lưu báo cáo"),
+            tr("Không ghi được đầy đủ dữ liệu:\n%1\n\n%2")
+                .arg(outputPath, error)
+        );
+        return;
+    }
+
+    if (!file.commit()) {
+        const QString error = file.errorString();
+
+        appendLog(
+            QString("Phase 2 CSV commit failed: %1").arg(error)
+        );
+        QMessageBox::critical(
+            this,
+            tr("Không thể hoàn tất lưu báo cáo"),
+            tr("Không thể hoàn tất tệp:\n%1\n\n%2")
+                .arg(outputPath, error)
+        );
+        return;
+    }
+
+    appendLog(
+        QString("Exported %1 Phase 2 execution records: %2")
+            .arg(rowCount)
+            .arg(outputPath)
+    );
+
+    QMessageBox::information(
+        this,
+        tr("Đã lưu báo cáo Phase 2"),
+        tr("Đã ghi %1 bản ghi vào:\n%2\n\n"
+           "Báo cáo chứa các bản ghi có tại thời điểm bấm xuất; "
+           "không bao gồm mục chưa có bản ghi xử lý.")
+            .arg(rowCount)
+            .arg(outputPath)
+    );
 }
 
 bool MainWindow::loadThermalSourceIntoN5Viewer(const DatasetPair &pair, bool fitView)

@@ -19,11 +19,14 @@ struct EnhanceJobRequest {
     QString pairId;
     QString datasetId;
     std::filesystem::path thermalFullPath;
+    std::filesystem::path datasetRoot;
     qart::application::ThermalProcessingMode mode = qart::application::ThermalProcessingMode::Bypass;
     bool isSkipped = false;
     QString skipReason;
     std::optional<qart::core::domain::datasets::DatasetPair> pair;
     std::optional<qart::core::domain::validation::PairValidationResult> validationResult;
+    QImage sourcePreview;
+    int sourceChannels = 0;
 };
 Q_DECLARE_METATYPE(EnhanceJobRequest)
 

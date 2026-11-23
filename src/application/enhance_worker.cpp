@@ -1,9 +1,11 @@
 #include "enhance_worker.h"
 
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <QElapsedTimer>
 #include <exception>
 #include <system_error>
+#include <stdexcept>
 
 namespace {
 
@@ -16,7 +18,8 @@ struct ThermalExecutionOutput {
 ThermalExecutionOutput executeThermalRequest(
     qart::application::ApplicationController &workerController,
     const std::filesystem::path &thermalPath,
-    qart::application::ThermalProcessingMode mode)
+    qart::application::ThermalProcessingMode mode,
+    EnhanceJobRequest *previewJob = nullptr)
 {
     std::error_code fsErr;
     const bool exists = std::filesystem::exists(thermalPath, fsErr);
@@ -56,6 +59,47 @@ ThermalExecutionOutput executeThermalRequest(
             QString("Không thể giải mã dữ liệu ảnh nhiệt qua OpenCV: %1")
                 .arg(QString::fromStdString(thermalPath.filename().string()))
         };
+    }
+
+    // Use the already-decoded source. Never create QPixmap in this thread.
+    if (previewJob != nullptr) {
+        previewJob->sourcePreview = QImage();
+        previewJob->sourceChannels = raw.channels();
+
+        if (raw.type() == CV_8UC1) {
+            previewJob->sourcePreview =
+                QImage(
+                    raw.data,
+                    raw.cols,
+                    raw.rows,
+                    static_cast<int>(raw.step),
+                    QImage::Format_Grayscale8
+                ).copy();
+        } else if (raw.type() == CV_8UC3) {
+            cv::Mat rgb;
+            cv::cvtColor(raw, rgb, cv::COLOR_BGR2RGB);
+
+            previewJob->sourcePreview =
+                QImage(
+                    rgb.data,
+                    rgb.cols,
+                    rgb.rows,
+                    rgb.step,
+                    QImage::Format_RGB888
+                ).copy();
+        } else if (raw.type() == CV_8UC4) {
+            cv::Mat rgba;
+            cv::cvtColor(raw, rgba, cv::COLOR_BGRA2RGBA);
+
+            previewJob->sourcePreview =
+                QImage(
+                    rgba.data,
+                    rgba.cols,
+                    rgba.rows,
+                    rgba.step,
+                    QImage::Format_RGBA8888
+                ).copy();
+        }
     }
 
     const auto result = workerController.processThermal(raw, mode);
@@ -194,19 +238,35 @@ void BatchEnhanceWorkerThread::run()
             timer.start();
 
             try {
-                // Background validation if not yet validated
-                if (!job.isSkipped && !job.validationResult.has_value() && job.pair.has_value()) {
-                    try {
-                        job.validationResult = workerController.getOrValidatePair(*job.pair);
-                        if (!job.validationResult->thermalDecoded()) {
-                            job.isSkipped = true;
-                            const std::string reason = job.validationResult->message().value_or(
-                                std::string(qart::core::domain::validation::toString(job.validationResult->status())));
-                            job.skipReason = QString("Validation failed: %1").arg(QString::fromStdString(reason));
-                        }
-                    } catch (const std::exception &ex) {
+                // Validate uncached jobs against their captured dataset root.
+                if (!job.isSkipped && !job.validationResult.has_value()) {
+                    if (!job.pair.has_value()) {
+                        throw std::runtime_error(
+                            "Cannot validate batch job: dataset pair is missing."
+                        );
+                    }
+
+                    job.validationResult =
+                        qart::application::ApplicationController::validatePairAtRoot(
+                            job.datasetRoot,
+                            *job.pair
+                        );
+
+                    if (!job.validationResult->thermalDecoded()) {
                         job.isSkipped = true;
-                        job.skipReason = QString("Validation error: %1").arg(ex.what());
+
+                        const std::string reason =
+                            job.validationResult->message().value_or(
+                                std::string(
+                                    qart::core::domain::validation::toString(
+                                        job.validationResult->status()
+                                    )
+                                )
+                            );
+
+                        job.skipReason =
+                            QString("Validation failed: %1")
+                                .arg(QString::fromStdString(reason));
                     }
                 }
 
@@ -231,7 +291,8 @@ void BatchEnhanceWorkerThread::run()
                 const auto execResult = executeThermalRequest(
                     workerController,
                     job.thermalFullPath,
-                    job.mode
+                    job.mode,
+                    &job
                 );
                 const qint64 elapsedMs = timer.elapsed();
 
@@ -329,12 +390,15 @@ void PreviewWorkerThread::run()
     try {
         if (isInterruptionRequested() || !request_.pair.has_value()) return;
 
-        // 1. Validation in background thread if not yet validated
-        qart::application::ApplicationController workerController;
+        // Validate using the root captured from the GUI session.
         if (request_.validationResult.has_value()) {
             result.validationResult = *request_.validationResult;
         } else {
-            result.validationResult = workerController.getOrValidatePair(*request_.pair);
+            result.validationResult =
+                qart::application::ApplicationController::validatePairAtRoot(
+                    request_.datasetRoot,
+                    *request_.pair
+                );
         }
 
         if (isInterruptionRequested()) return;

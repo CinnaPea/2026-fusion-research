@@ -329,7 +329,7 @@ ApplicationController::currentDatasetId() const noexcept
     return currentDatasetId_;
 }
 
-const std::vector<core::domain::datasets::DatasetPair>&
+const std::vector<DatasetPair>&
 ApplicationController::discoveredPairs() const noexcept
 {
     return discoveredPairs_;
@@ -396,7 +396,7 @@ std::filesystem::path ApplicationController::resolveDatasetRoot(
     }
 
     std::filesystem::path search = current;
-    for (int depth = 0; depth < 5; ++depth) {
+    while (true) {
         if (
             std::filesystem::exists(search / "raw")
             && std::filesystem::is_directory(search / "raw")
@@ -404,7 +404,10 @@ std::filesystem::path ApplicationController::resolveDatasetRoot(
             return search;
         }
 
-        if (!search.has_parent_path() || search == search.parent_path()) {
+        if (
+            !search.has_parent_path()
+            || search == search.parent_path()
+        ) {
             break;
         }
 
@@ -518,7 +521,7 @@ void ApplicationController::loadCanonicalValidationManifest()
 
     try {
         core::manifests::CsvValidationManifestReader reader;
-        const core::manifests::ValidationManifest manifest =
+        const ValidationManifest manifest =
             reader.read(manifestPath);
         const auto results = manifest.toResults();
 
@@ -577,40 +580,37 @@ void ApplicationController::loadCanonicalValidationManifest()
     }
 }
 
-    PairValidationResult ApplicationController::getOrValidatePair(
+    PairValidationResult ApplicationController::validatePairAtRoot(
+        const std::filesystem::path& datasetRoot,
         const DatasetPair& pair
     )
     {
-        const auto cached =
-            validatedResultsCache_.find(pair.pairId());
-
-        if (cached != validatedResultsCache_.end()) {
-            return cached->second;
+        if (datasetRoot.empty()) {
+            throw std::invalid_argument(
+                "Cannot validate pair: dataset root is empty."
+            );
         }
 
         OpenCvImageDecoder decoder;
-
         const PairValidationPolicy policy =
-            validationPolicyForDataset(
-                pair.datasetId()
-            );
+            validationPolicyForDataset(pair.datasetId());
 
-        PairValidator validator(
-            decoder,
-            policy
-        );
+        PairValidator validator(decoder, policy);
+        return validator.validatePair(datasetRoot, pair);
+    }
+
+        PairValidationResult ApplicationController::getOrValidatePair(
+            const DatasetPair& pair
+        )
+    {
+        if (const auto cached = validatedResultsCache_.find(pair.pairId()); cached != validatedResultsCache_.end()) {
+            return cached->second;
+        }
 
         PairValidationResult result =
-            validator.validatePair(
-                datasetRoot_,
-                pair
-            );
+            validatePairAtRoot(datasetRoot_, pair);
 
-        validatedResultsCache_.emplace(
-            pair.pairId(),
-            result
-        );
-
+        validatedResultsCache_.emplace(pair.pairId(), result);
         return result;
     }
 

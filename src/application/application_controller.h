@@ -129,7 +129,15 @@ public:
     std::size_t manualSelectionCount() const noexcept;
 
     [[nodiscard]]
-    core::domain::validation::PairValidationResult getOrValidatePair(const core::domain::datasets::DatasetPair& pair);
+    core::domain::validation::PairValidationResult getOrValidatePair(
+        const core::domain::datasets::DatasetPair& pair
+    );
+
+    [[nodiscard]]
+    static core::domain::validation::PairValidationResult validatePairAtRoot(
+        const std::filesystem::path& datasetRoot,
+        const core::domain::datasets::DatasetPair& pair
+    );
 
     [[nodiscard]]
     bool loadDataset(
