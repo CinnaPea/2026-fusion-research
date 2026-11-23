@@ -2187,6 +2187,17 @@ void MainWindow::onApplyN5Clicked()
         setN5UiState(N5UiState::Processing, 0, QString(), modeStr);
         ui->viewerN5Enhanced->clearImage(QString("Đang xử lý worker thread (%1)...").arg(modeStr));
         appendLog(QString("Started enhancement for pair %1 (Method: %2)").arg(activeN5PairId_, modeStr));
+        if (mode == qart::application::ThermalProcessingMode::N5PostHalf) {
+            appendLog(QString("[N5 Paper Params] r=%1, eps=%2, h=%3, gamma=%4, alpha=%5 | Mode=%6, Norm=%7%8")
+                          .arg(ui->spnParamRadius->value())
+                          .arg(ui->spnParamEps->value(), 0, 'f', 3)
+                          .arg(ui->spnParamH->value(), 0, 'f', 1)
+                          .arg(ui->spnParamGamma->value(), 0, 'f', 2)
+                          .arg(ui->spnParamAlpha->value(), 0, 'f', 2)
+                          .arg(ui->cmbParamMode->currentText())
+                          .arg(ui->cmbParamDetailNorm->currentText())
+                          .arg(ui->chkParamAdaptiveNlm->isChecked() ? " | Adaptive NLM: Bật" : ""));
+        }
 
         // 2. Retire an toàn worker trước đó (không xóa thread khi còn đang chạy)
         retireSingleWorker();
