@@ -216,6 +216,9 @@ int main(int argc, char* argv[])
             require(received.visDecodeSuccess && received.thrDecodeSuccess, "Expected preview images decoded");
             require(!received.visibleImage.isNull() && !received.thermalImage.isNull(), "Preview QImages null");
             require(!received.channelDesc.isEmpty(), "Preview channelDesc empty");
+            require(received.sourceStats.valid && received.sourceStats.mean > 0.0
+                        && received.sourceStats.entropy > 0.0,
+                    "Preview sourceStats missing or invalid");
         }
 
         // 4. PreviewWorkerThread on empty datasetRoot must report explicit errorMessage,
@@ -392,6 +395,8 @@ int main(int argc, char* argv[])
             require(n5OutReq.metrics.valid, "Single N5 metrics invalid");
             require(n5OutReq.metrics.maxAbsDiff > 0 && n5OutReq.metrics.mae > 0.0,
                     "Single N5 metrics expected positive diff");
+            require(n5OutReq.metrics.inputMean > 0.0 && n5OutReq.metrics.inputEntropy > 0.0,
+                    "Single N5 input baseline metrics missing");
             require(!n5OutReq.diffHeatmap.isNull()
                         && n5OutReq.diffHeatmap.size() == n5Img.size(),
                     "Single N5 diffHeatmap invalid");

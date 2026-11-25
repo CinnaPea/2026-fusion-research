@@ -148,6 +148,9 @@ private:
                                      qint64 elapsedMs,
                                      const QString &methodStr);
     [[nodiscard]]
+    static QString formatOriginalMetricsSummary(const QString &baseInfo,
+                                                  const ThermalPlaneStats &stats);
+    [[nodiscard]]
     static QString formatEnhancementMetricsSummary(const QString &methodStr,
                                                    qint64 elapsedMs,
                                                    const QString &appliedParams,
@@ -195,6 +198,8 @@ private:
     QPixmap cachedN5OriginalPixmap_;
     QPixmap cachedN5EnhancedPixmap_;
     QPixmap cachedN5DiffPixmap_;
+    QString activeN5OriginalBaseInfo_;
+    ThermalPlaneStats activeN5OriginalStats_;
     ThermalEnhancementMetrics lastThermalMetrics_;
     QString lastAppliedParams_;
     qint64 lastElapsedMs_ = -1;

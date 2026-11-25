@@ -438,6 +438,8 @@ void MainWindow::invalidateActiveSessionAndWorkers(bool clearOriginalViewer)
     if (clearOriginalViewer) {
         clearTab1PreviewUi();
         cachedN5OriginalPixmap_ = QPixmap();
+        activeN5OriginalBaseInfo_.clear();
+        activeN5OriginalStats_ = ThermalPlaneStats{};
         activeN5PairId_.clear();
         activeThermalValid_ = false;
         if (ui->viewerN5Original) {
@@ -1135,6 +1137,8 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
         if (!isBatchEnhancing_ && !preserveSamePairEnhanced) {
             activeN5PairId_ = pairIdQStr;
             cachedN5OriginalPixmap_ = QPixmap();
+            activeN5OriginalBaseInfo_.clear();
+            activeN5OriginalStats_ = ThermalPlaneStats{};
             clearN5EnhancedCache();
             ui->lblN5PairInfo->setText(QString("Cặp ảnh: %1 (Stem: %2 | Partition: %3)")
                                            .arg(pairIdQStr,
@@ -1149,6 +1153,7 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
             ui->btnApplyN5->setEnabled(false);
             ui->lblN5Status->setText("Trạng thái: Đang nạp...");
             ui->lblN5Status->setStyleSheet("background-color: #3b2d18; color: #E5A93C; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+            ui->lblN5OriginalInfo->setText("Đang nạp ảnh nhiệt...");
             ui->lblN5EnhancedInfo->setText("Thời gian: — | Trạng thái: Đang nạp ảnh...");
         }
 
@@ -1233,6 +1238,8 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
             activeThermalValid_ = false;
 
             cachedN5OriginalPixmap_ = QPixmap();
+            activeN5OriginalBaseInfo_.clear();
+            activeN5OriginalStats_ = ThermalPlaneStats{};
             clearN5EnhancedCache();
 
             ui->lblN5PairInfo->setText(
@@ -1366,16 +1373,23 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
 
         if (result.thrDecodeSuccess && !cachedThermalImage_.isNull()) {
             cachedN5OriginalPixmap_ = QPixmap::fromImage(cachedThermalImage_);
-            ui->lblN5OriginalInfo->setText(QString("File: %1\n%2")
-                                               .arg(QString::fromStdString(entry.pair.thermalRelativePath()), result.channelDesc));
+            activeN5OriginalBaseInfo_ = QString("File: %1\n%2")
+                                            .arg(QString::fromStdString(entry.pair.thermalRelativePath()), result.channelDesc);
+            activeN5OriginalStats_ = result.sourceStats;
+            ui->lblN5OriginalInfo->setText(
+                formatOriginalMetricsSummary(activeN5OriginalBaseInfo_, activeN5OriginalStats_));
             ui->viewerN5Original->setPixmap(cachedN5OriginalPixmap_, false);
             ui->viewerN5Original->fitToView();
         } else if (!result.thrFileExists) {
             cachedN5OriginalPixmap_ = QPixmap();
+            activeN5OriginalBaseInfo_.clear();
+            activeN5OriginalStats_ = ThermalPlaneStats{};
             ui->lblN5OriginalInfo->setText("Không tìm thấy file ảnh nhiệt trên đĩa.");
             ui->viewerN5Original->clearImage("Không tìm thấy file ảnh nhiệt");
         } else {
             cachedN5OriginalPixmap_ = QPixmap();
+            activeN5OriginalBaseInfo_.clear();
+            activeN5OriginalStats_ = ThermalPlaneStats{};
             ui->lblN5OriginalInfo->setText("Không thể giải mã dữ liệu ảnh nhiệt.");
             ui->viewerN5Original->clearImage("Lỗi giải mã ảnh nhiệt");
         }
@@ -2607,22 +2621,24 @@ void MainWindow::onBatchStepFinished(quint64 sessionId,
         ui->viewerN5Original->fitToView();
 
         QString sourceInfo =
-            QString("File: %1\nẢnh IR nguồn: %2 x %3 px | %4 kênh")
+            QString("File: %1\nẢnh gốc: %2 × %3 px | %4 kênh%5")
                 .arg(sourcePath)
                 .arg(request.sourcePreview.width())
                 .arg(request.sourcePreview.height())
-                .arg(request.sourceChannels);
+                .arg(request.sourceChannels)
+                .arg(request.sourceChannels > 1 ? QString(" (BGR → Gray8)") : QString(" (Gray8)"));
 
         if (request.sourceChannels > 1) {
-            sourceInfo += tr(
-                "\nHiển thị ảnh IR màu nguồn; "
-                "không tự giải mã bảng màu thành cường độ nhiệt."
-            );
+            sourceInfo += tr("\n[Giữ nguyên biểu diễn, không tự giải mã bảng màu]");
         }
 
-        ui->lblN5OriginalInfo->setText(sourceInfo);
+        activeN5OriginalBaseInfo_ = sourceInfo;
+        activeN5OriginalStats_ = ThermalPlaneStats{};
+        ui->lblN5OriginalInfo->setText(activeN5OriginalBaseInfo_);
     } else {
         cachedN5OriginalPixmap_ = QPixmap();
+        activeN5OriginalBaseInfo_.clear();
+        activeN5OriginalStats_ = ThermalPlaneStats{};
 
         ui->viewerN5Original->clearImage(
             tr("Không có preview nguồn cho mục này")
@@ -3075,6 +3091,28 @@ QString MainWindow::formatEnhancementLogMetrics(const ThermalEnhancementMetrics 
 }
 
 // static
+QString MainWindow::formatOriginalMetricsSummary(const QString &baseInfo,
+                                                 const ThermalPlaneStats &stats)
+{
+    if (!stats.valid) {
+        return baseInfo;
+    }
+    const QString statsText = QString(
+        "Mean: %1 | Std: %2 | Dải: %3..%4\n"
+        "Entropy: %5 bit/px | Edge: %6")
+        .arg(stats.mean, 0, 'f', 1)
+        .arg(stats.stdDev, 0, 'f', 1)
+        .arg(stats.minVal)
+        .arg(stats.maxVal)
+        .arg(stats.entropy, 0, 'f', 2)
+        .arg(stats.edgeGradient, 0, 'f', 1);
+    if (baseInfo.isEmpty()) {
+        return statsText;
+    }
+    return baseInfo + QLatin1Char('\n') + statsText;
+}
+
+// static
 QString MainWindow::formatEnhancementMetricsSummary(
     const QString &methodStr, qint64 elapsedMs, const QString &appliedParams,
     const ThermalEnhancementMetrics &m, bool showingDiffMap)
@@ -3083,24 +3121,41 @@ QString MainWindow::formatEnhancementMetricsSummary(
         return QString("Thời gian: %1 ms | Trạng thái: Hoàn tất | %2")
             .arg(elapsedMs).arg(methodStr);
     }
-    QString base = QString(
-        "Thời gian: %1 ms | %2\n"
+
+    const auto formatSignedDelta = [](double delta, int precision) -> QString {
+        const double zeroThreshold = 0.5 * std::pow(10.0, -precision);
+        const double clean = (std::abs(delta) < zeroThreshold) ? 0.0 : delta;
+        if (clean < 0.0) {
+            return QString::number(clean, 'f', precision);
+        }
+        return QString("+%1").arg(clean, 0, 'f', precision);
+    };
+
+    const QString headerSuffix = showingDiffMap
+        ? QString(" | %1 · [Diff |Sau − Trước| Inferno]").arg(methodStr)
+        : QString(" | %1").arg(methodStr);
+
+    return QString(
+        "Thời gian: %1 ms%2\n"
         "Params: %3\n"
-        "Mean: %4 → %5 | Std: %6 → %7\n"
-        "Entropy: %8 → %9 bit/px | Edge: %10 → %11\n"
-        "MAE: %12 | MaxΔ: %13 | Thay đổi: %14%")
-        .arg(elapsedMs).arg(methodStr, appliedParams)
-        .arg(m.inputMean,  0, 'f', 1).arg(m.outputMean,    0, 'f', 1)
-        .arg(m.inputStd,   0, 'f', 1).arg(m.outputStd,     0, 'f', 1)
-        .arg(m.inputEntropy,  0, 'f', 2).arg(m.outputEntropy,  0, 'f', 2)
-        .arg(m.inputEdgeGrad, 0, 'f', 1).arg(m.outputEdgeGrad, 0, 'f', 1)
-        .arg(m.mae,  0, 'f', 1)
+        "Mean: %4 (%5) | Std: %6 (%7) | Dải: %8..%9\n"
+        "Entropy: %10 (%11) bit/px | Edge: %12 (%13)\n"
+        "MAE: %14 | MaxΔ: %15 | Thay đổi: %16%")
+        .arg(elapsedMs)
+        .arg(headerSuffix, appliedParams)
+        .arg(m.outputMean, 0, 'f', 1)
+        .arg(formatSignedDelta(m.outputMean - m.inputMean, 1))
+        .arg(m.outputStd, 0, 'f', 1)
+        .arg(formatSignedDelta(m.outputStd - m.inputStd, 1))
+        .arg(m.outputMin)
+        .arg(m.outputMax)
+        .arg(m.outputEntropy, 0, 'f', 2)
+        .arg(formatSignedDelta(m.outputEntropy - m.inputEntropy, 2))
+        .arg(m.outputEdgeGrad, 0, 'f', 1)
+        .arg(formatSignedDelta(m.outputEdgeGrad - m.inputEdgeGrad, 1))
+        .arg(m.mae, 0, 'f', 1)
         .arg(m.maxAbsDiff)
         .arg(m.changedPixelPercent, 0, 'f', 1);
-    if (showingDiffMap) {
-        base += "\n[Hiển thị: Bản đồ chênh lệch |Sau − Trước| (Inferno)]";
-    }
-    return base;
 }
 
 void MainWindow::updateEnhancedResultDisplay(
@@ -3118,6 +3173,23 @@ void MainWindow::updateEnhancedResultDisplay(
     cachedN5DiffPixmap_     = request.diffHeatmap.isNull()
                                   ? QPixmap()
                                   : QPixmap::fromImage(request.diffHeatmap);
+
+    // Refresh left column with original-plane stats so left = original, right = enhanced.
+    if (request.metrics.valid) {
+        ThermalPlaneStats origStats;
+        origStats.valid = true;
+        origStats.mean = request.metrics.inputMean;
+        origStats.stdDev = request.metrics.inputStd;
+        origStats.entropy = request.metrics.inputEntropy;
+        origStats.edgeGradient = request.metrics.inputEdgeGrad;
+        origStats.minVal = request.metrics.inputMin;
+        origStats.maxVal = request.metrics.inputMax;
+        activeN5OriginalStats_ = origStats;
+        if (!activeN5OriginalBaseInfo_.isEmpty() && ui->lblN5OriginalInfo) {
+            ui->lblN5OriginalInfo->setText(
+                formatOriginalMetricsSummary(activeN5OriginalBaseInfo_, activeN5OriginalStats_));
+        }
+    }
 
     // Enable diff-map checkbox only when a real diff exists
     const bool hasDiff = !cachedN5DiffPixmap_.isNull() && request.metrics.maxAbsDiff > 0;

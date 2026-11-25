@@ -13,6 +13,17 @@
 #include "core/domain/datasets/dataset_pair.h"
 #include "core/domain/validation/pair_validation_result.h"
 
+struct ThermalPlaneStats {
+    bool valid = false;
+    double mean = 0.0;
+    double stdDev = 0.0;
+    double entropy = 0.0;
+    double edgeGradient = 0.0;
+    int minVal = 0;
+    int maxVal = 0;
+};
+Q_DECLARE_METATYPE(ThermalPlaneStats)
+
 struct ThermalEnhancementMetrics {
     bool valid = false;
     double inputMean = 0.0;
@@ -77,6 +88,7 @@ struct PreviewJobResult {
     bool visDecodeSuccess = false;
     bool thrDecodeSuccess = false;
     int irChannels = 0;
+    ThermalPlaneStats sourceStats;
     QString channelDesc;
     QString errorMessage;
 };

@@ -19,21 +19,14 @@ struct ThermalExecutionOutput {
     QString errorMessage;
 };
 
-struct PlaneStats {
-    double mean = 0.0;
-    double stdDev = 0.0;
-    double entropy = 0.0;
-    double edgeGradient = 0.0;
-    int minVal = 0;
-    int maxVal = 0;
-};
-
-PlaneStats computePlaneStats(const cv::Mat &gray8)
+ThermalPlaneStats computePlaneStats(const cv::Mat &gray8)
 {
-    PlaneStats stats;
+    ThermalPlaneStats stats;
     if (gray8.empty() || gray8.type() != CV_8UC1) {
         return stats;
     }
+
+    stats.valid = true;
 
     cv::Scalar meanScalar;
     cv::Scalar stdScalar;
@@ -114,8 +107,8 @@ void populateThermalMetricsAndDiff(
     EnhanceJobRequest &target)
 {
     target.appliedParamsSummary = (mode == qart::application::ThermalProcessingMode::N5PostHalf)
-                                      ? QString("GF Base 7×7 · CLAHE(clip=2.0, 8×8) · Post-Half 3×3 (×0.5)")
-                                      : QString("BYPASS (Giữ nguyên đầu vào grayscale đã chuẩn bị)");
+                                      ? QString("GF Base 7×7 | CLAHE(2.0, 8×8) | Post-Half 3×3 (×0.5)")
+                                      : QString("BYPASS (Giữ nguyên đầu vào grayscale)");
 
     if (prepared.empty() || output.empty() || prepared.size() != output.size()) {
         target.metrics = ThermalEnhancementMetrics{};
@@ -123,8 +116,8 @@ void populateThermalMetricsAndDiff(
         return;
     }
 
-    const PlaneStats inStats = computePlaneStats(prepared);
-    const PlaneStats outStats = computePlaneStats(output);
+    const ThermalPlaneStats inStats = computePlaneStats(prepared);
+    const ThermalPlaneStats outStats = computePlaneStats(output);
 
     cv::Mat absDiff;
     cv::absdiff(output, prepared, absDiff);
@@ -521,6 +514,7 @@ PreviewWorkerThread::PreviewWorkerThread(PreviewJobRequest request, QObject *par
     : QThread(parent)
     , request_(std::move(request))
 {
+    qRegisterMetaType<ThermalPlaneStats>("ThermalPlaneStats");
     qRegisterMetaType<PreviewJobRequest>("PreviewJobRequest");
     qRegisterMetaType<PreviewJobResult>("PreviewJobResult");
 }
@@ -595,7 +589,7 @@ void PreviewWorkerThread::run()
                 result.thermalImage = std::move(thrImg);
             }
 
-            // Inspect channels and dimensions with cv::imread off GUI thread
+            // Inspect channels, dimensions, and baseline thermal stats off GUI thread
             int inspectW = 0;
             int inspectH = 0;
             try {
@@ -604,30 +598,31 @@ void PreviewWorkerThread::run()
                     result.irChannels = inspectMat.channels();
                     inspectW = inspectMat.cols;
                     inspectH = inspectMat.rows;
+                    const cv::Mat prepared = qart::core::enhancement::prepareThermalUint8Plane(inspectMat);
+                    result.sourceStats = computePlaneStats(prepared);
                 }
             } catch (...) {
-                result.irChannels = 0;
+                // Keep inspected channel count if stats preparation fails (e.g. non-uint8 preview)
             }
 
             const int dispW = result.thrDecodeSuccess ? result.thermalImage.width() : inspectW;
             const int dispH = result.thrDecodeSuccess ? result.thermalImage.height() : inspectH;
 
-            // Construct modality / channel description off GUI thread
+            // Construct concise modality / channel description for left column
             if (result.irChannels == 3) {
-                result.channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | 3 kênh (Colormap/Ảnh màu)\n"
-                                             "Đầu vào grayscale đã chuẩn bị: %1 x %2 px (BGR → Grayscale uint8)\n"
-                                             "[Ghi chú: Giữ nguyên biểu diễn, không tự giải mã bảng màu]")
+                result.channelDesc = QString("Ảnh gốc: %1 × %2 px | 3 kênh (BGR → Gray8)\n"
+                                             "[Giữ nguyên biểu diễn, không tự giải mã bảng màu]")
                                          .arg(dispW)
                                          .arg(dispH);
             } else if (result.irChannels == 1) {
-                result.channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | 1 kênh đơn sắc (Grayscale uint8)\n"
-                                             "Đầu vào grayscale đã chuẩn bị: %1 x %2 px (Đơn kênh nguyên bản)")
+                result.channelDesc = QString("Ảnh gốc: %1 × %2 px | 1 kênh đơn sắc (Gray8)")
                                          .arg(dispW)
                                          .arg(dispH);
             } else {
-                result.channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | Modality: Thermal (A2)")
+                result.channelDesc = QString("Ảnh gốc: %1 × %2 px | %3 kênh (Thermal A2)")
                                          .arg(dispW)
-                                         .arg(dispH);
+                                         .arg(dispH)
+                                         .arg(result.irChannels);
             }
         }
 
