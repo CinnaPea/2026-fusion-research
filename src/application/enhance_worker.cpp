@@ -595,32 +595,39 @@ void PreviewWorkerThread::run()
                 result.thermalImage = std::move(thrImg);
             }
 
-            // Inspect channels with cv::imread off GUI thread
+            // Inspect channels and dimensions with cv::imread off GUI thread
+            int inspectW = 0;
+            int inspectH = 0;
             try {
                 const cv::Mat inspectMat = cv::imread(thrPath.string(), cv::IMREAD_UNCHANGED);
                 if (!inspectMat.empty()) {
                     result.irChannels = inspectMat.channels();
+                    inspectW = inspectMat.cols;
+                    inspectH = inspectMat.rows;
                 }
             } catch (...) {
                 result.irChannels = 0;
             }
+
+            const int dispW = result.thrDecodeSuccess ? result.thermalImage.width() : inspectW;
+            const int dispH = result.thrDecodeSuccess ? result.thermalImage.height() : inspectH;
 
             // Construct modality / channel description off GUI thread
             if (result.irChannels == 3) {
                 result.channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | 3 kênh (Colormap/Ảnh màu)\n"
                                              "Đầu vào grayscale đã chuẩn bị: %1 x %2 px (BGR → Grayscale uint8)\n"
                                              "[Ghi chú: Giữ nguyên biểu diễn, không tự giải mã bảng màu]")
-                                         .arg(result.thermalImage.width())
-                                         .arg(result.thermalImage.height());
+                                         .arg(dispW)
+                                         .arg(dispH);
             } else if (result.irChannels == 1) {
                 result.channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | 1 kênh đơn sắc (Grayscale uint8)\n"
                                              "Đầu vào grayscale đã chuẩn bị: %1 x %2 px (Đơn kênh nguyên bản)")
-                                         .arg(result.thermalImage.width())
-                                         .arg(result.thermalImage.height());
+                                         .arg(dispW)
+                                         .arg(dispH);
             } else {
                 result.channelDesc = QString("Ảnh IR nguồn: %1 x %2 px | Modality: Thermal (A2)")
-                                         .arg(result.thermalImage.width())
-                                         .arg(result.thermalImage.height());
+                                         .arg(dispW)
+                                         .arg(dispH);
             }
         }
 

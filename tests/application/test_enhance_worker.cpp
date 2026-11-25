@@ -326,6 +326,14 @@ int main(int argc, char* argv[])
             require(!steps[0].resultImage.isNull()
                         && steps[0].resultImage.format() == QImage::Format_Grayscale8,
                     "Step 0 resultImage invalid");
+            require(steps[0].request.metrics.valid, "Step 0 metrics not populated");
+            require(steps[0].request.metrics.maxAbsDiff > 0 && steps[0].request.metrics.changedPixelPercent > 0.0,
+                    "Step 0 N5 metrics expected non-zero enhancement delta");
+            require(!steps[0].request.diffHeatmap.isNull()
+                        && steps[0].request.diffHeatmap.size() == steps[0].resultImage.size(),
+                    "Step 0 diffHeatmap missing or wrong size");
+            require(steps[0].request.appliedParamsSummary.contains("CLAHE"),
+                    "Step 0 appliedParamsSummary missing N5 summary");
 
             // Step 1: mismatched dims uncached pair (still thermal-valid in Phase 2)
             require(steps[1].success && !steps[1].request.isSkipped, "Step 1 (mismatch thermal) failed");
@@ -335,6 +343,8 @@ int main(int argc, char* argv[])
             require(!steps[1].request.sourcePreview.isNull() && steps[1].request.sourceChannels == 3,
                     "Step 1 missing 3-ch sourcePreview");
             require(!steps[1].resultImage.isNull(), "Step 1 resultImage null");
+            require(steps[1].request.metrics.valid && !steps[1].request.diffHeatmap.isNull(),
+                    "Step 1 metrics or diffHeatmap invalid");
 
             // Step 2: genuinely missing thermal on disk
             require(!steps[2].success && steps[2].request.isSkipped, "Step 2 should be skipped");
@@ -345,6 +355,81 @@ int main(int argc, char* argv[])
             // Step 3: missing datasetRoot -> explicit error, not skipped!
             require(!steps[3].success && !steps[3].request.isSkipped,
                     "Step 3 missing datasetRoot must be error, not skipped");
+        }
+
+        // 6. SingleEnhanceWorkerThread metrics & diffHeatmap contract for N5 vs BYPASS.
+        {
+            EnhanceJobRequest n5Req;
+            n5Req.sessionId = 3;
+            n5Req.requestId = 30;
+            n5Req.pairId = QString::fromStdString(validPair.pairId());
+            n5Req.datasetId = "roadscene";
+            n5Req.datasetRoot = root;
+            n5Req.thermalFullPath = root / validPair.thermalRelativePath();
+            n5Req.mode = ThermalProcessingMode::N5PostHalf;
+
+            SingleEnhanceWorkerThread n5Worker(n5Req);
+            EnhanceJobRequest n5OutReq;
+            QImage n5Img;
+            bool n5Ok = false;
+            QEventLoop n5Loop;
+            QObject::connect(&n5Worker, &SingleEnhanceWorkerThread::jobFinished,
+                             &app, [&](const EnhanceJobRequest& req,
+                                       const QImage& img,
+                                       qint64,
+                                       bool success,
+                                       const QString&) {
+                                 n5OutReq = req;
+                                 n5Img = img;
+                                 n5Ok = success;
+                                 n5Loop.quit();
+                             });
+            n5Worker.start();
+            n5Loop.exec();
+            n5Worker.wait();
+
+            require(n5Ok && !n5Img.isNull(), "SingleEnhanceWorkerThread N5 failed");
+            require(n5OutReq.metrics.valid, "Single N5 metrics invalid");
+            require(n5OutReq.metrics.maxAbsDiff > 0 && n5OutReq.metrics.mae > 0.0,
+                    "Single N5 metrics expected positive diff");
+            require(!n5OutReq.diffHeatmap.isNull()
+                        && n5OutReq.diffHeatmap.size() == n5Img.size(),
+                    "Single N5 diffHeatmap invalid");
+            require(n5OutReq.appliedParamsSummary.contains("GF Base"),
+                    "Single N5 appliedParamsSummary missing GF Base");
+
+            EnhanceJobRequest bypassReq = n5Req;
+            bypassReq.requestId = 31;
+            bypassReq.mode = ThermalProcessingMode::Bypass;
+
+            SingleEnhanceWorkerThread bypassWorker(bypassReq);
+            EnhanceJobRequest bypassOutReq;
+            QImage bypassImg;
+            bool bypassOk = false;
+            QEventLoop bypassLoop;
+            QObject::connect(&bypassWorker, &SingleEnhanceWorkerThread::jobFinished,
+                             &app, [&](const EnhanceJobRequest& req,
+                                       const QImage& img,
+                                       qint64,
+                                       bool success,
+                                       const QString&) {
+                                 bypassOutReq = req;
+                                 bypassImg = img;
+                                 bypassOk = success;
+                                 bypassLoop.quit();
+                             });
+            bypassWorker.start();
+            bypassLoop.exec();
+            bypassWorker.wait();
+
+            require(bypassOk && !bypassImg.isNull(), "SingleEnhanceWorkerThread BYPASS failed");
+            require(bypassOutReq.metrics.valid, "Single BYPASS metrics invalid");
+            require(bypassOutReq.metrics.maxAbsDiff == 0
+                        && bypassOutReq.metrics.mae == 0.0
+                        && bypassOutReq.metrics.changedPixelPercent == 0.0,
+                    "Single BYPASS metrics expected zero delta");
+            require(bypassOutReq.appliedParamsSummary.contains("BYPASS"),
+                    "Single BYPASS appliedParamsSummary missing BYPASS");
         }
 
         std::cout << "Enhance worker uncached preview/batch contract passed\n";

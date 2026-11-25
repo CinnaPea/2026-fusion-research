@@ -1458,7 +1458,7 @@
                      </size>
                     </property>
                     <property name="styleSheet">
-                     <string>background-color: #121212; color: #d0d0d0; font-family: monospace; font-size: 11px; border: 1px solid #333333; border-radius: 4px;</string>
+                     <string>background-color: #121212; color: #d0d0d0; font-size: 11px; border: 1px solid #333333; border-radius: 4px;</string>
                     </property>
                     <property name="readOnly">
                      <bool>true</bool>

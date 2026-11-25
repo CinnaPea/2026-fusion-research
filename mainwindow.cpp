@@ -14,6 +14,7 @@
 #include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPalette>
@@ -44,6 +45,11 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     setWindowTitle("QART-Fusion");
+    if (ui->txtLogConsole) {
+        QFont logFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        logFont.setPointSize(11);
+        ui->txtLogConsole->setFont(logFont);
+    }
 
     setupUiControls();
 
@@ -152,6 +158,13 @@ MainWindow::MainWindow(QWidget *parent)
                 lastAppliedParams_,
                 lastThermalMetrics_,
                 showingDiff));
+        }
+    });
+    connect(ui->chkSyncView, &QCheckBox::toggled, this, [this](bool checked) {
+        if (checked && !cachedN5OriginalPixmap_.isNull() && !cachedN5EnhancedPixmap_.isNull()) {
+            ui->viewerN5Enhanced->setSyncViewport(
+                ui->viewerN5Original->zoomFactor(),
+                ui->viewerN5Original->panOffset());
         }
     });
 
@@ -1116,8 +1129,10 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
         ui->lblThermalImage->setStyleSheet("background-color: #1e1e1e; color: #888888; border: 1px solid #333333; border-radius: 6px;");
         ui->lblThermalImage->setPixmap(QPixmap());
 
-        // Update Tab 2 outside active batch runs
-        if (!isBatchEnhancing_) {
+        // Update Tab 2 outside active batch runs (keep existing enhanced result if revisiting the same pair)
+        const bool preserveSamePairEnhanced =
+            (activeN5PairId_ == pairIdQStr) && !cachedN5EnhancedPixmap_.isNull();
+        if (!isBatchEnhancing_ && !preserveSamePairEnhanced) {
             activeN5PairId_ = pairIdQStr;
             cachedN5OriginalPixmap_ = QPixmap();
             clearN5EnhancedCache();
@@ -1339,6 +1354,13 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
 
     // Update Tab 2 (N5 Viewer) with in-memory decoded image without disk I/O
     if (!isBatchEnhancing_) {
+        const bool preserveExistingEnhanced =
+            (activeN5PairId_ == result.pairId)
+            && thrOk
+            && result.thrDecodeSuccess
+            && !cachedThermalImage_.isNull()
+            && !cachedN5EnhancedPixmap_.isNull();
+
         activeN5PairId_ = result.pairId;
         activeThermalValid_ = thrOk;
 
@@ -1358,22 +1380,24 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
             ui->viewerN5Original->clearImage("Lỗi giải mã ảnh nhiệt");
         }
 
-        // STALE INVALIDATION: Xóa kết quả N5 cũ khi nạp cặp mới
-        clearN5EnhancedCache();
-        ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
+        if (!preserveExistingEnhanced) {
+            // STALE INVALIDATION: Xóa kết quả N5 cũ khi nạp cặp mới
+            clearN5EnhancedCache();
+            ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
 
-        if (!activeThermalValid_) {
-            ui->btnApplyN5->setEnabled(false);
-            ui->btnApplyN5->setToolTip(tr("Ảnh nhiệt không đạt điều kiện kiểm định (thiếu file hoặc lỗi giải mã)."));
-            ui->lblN5Status->setText(tr("Trạng thái: Không thể xử lý (Ảnh nhiệt không hợp lệ)"));
-            ui->lblN5Status->setStyleSheet("background-color: #3d1a1a; color: #FF6B6B; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
-            ui->lblN5EnhancedInfo->setText(tr("Thời gian: — | Trạng thái: Không thể xử lý"));
-        } else {
-            ui->btnApplyN5->setToolTip(tr("Áp dụng xử lý thuật toán cho ảnh nhiệt."));
-            setN5UiState(N5UiState::NotRun);
+            if (!activeThermalValid_) {
+                ui->btnApplyN5->setEnabled(false);
+                ui->btnApplyN5->setToolTip(tr("Ảnh nhiệt không đạt điều kiện kiểm định (thiếu file hoặc lỗi giải mã)."));
+                ui->lblN5Status->setText(tr("Trạng thái: Không thể xử lý (Ảnh nhiệt không hợp lệ)"));
+                ui->lblN5Status->setStyleSheet("background-color: #3d1a1a; color: #FF6B6B; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+                ui->lblN5EnhancedInfo->setText(tr("Thời gian: — | Trạng thái: Không thể xử lý"));
+            } else {
+                ui->btnApplyN5->setToolTip(tr("Áp dụng xử lý thuật toán cho ảnh nhiệt."));
+                setN5UiState(N5UiState::NotRun);
+            }
+
+            ui->viewerN5Enhanced->fitToView();
         }
-
-        ui->viewerN5Enhanced->fitToView();
     }
 }
 
@@ -2714,7 +2738,7 @@ void MainWindow::onResetN5Clicked()
         isBatchCancelling_ = false;
         batchTotalCount_ = 0;
 
-        cachedN5EnhancedPixmap_ = QPixmap();
+        clearN5EnhancedCache();
         ui->viewerN5Enhanced->clearImage("Đã khôi phục ảnh gốc. Bấm 'Áp dụng xử lý' để chạy.");
         ui->viewerN5Original->fitToView();
         ui->viewerN5Enhanced->fitToView();
@@ -2977,9 +3001,22 @@ void MainWindow::setN5UiState(N5UiState state, qint64 elapsedMs, const QString &
         ui->prgN5->setVisible(false);
         if (elapsedMs >= 0) {
             ui->lblN5Status->setText(QString("Trạng thái: Hoàn tất (%1 ms | %2)").arg(elapsedMs).arg(methodStr));
-            ui->lblN5EnhancedInfo->setText(QString("Thời gian: %1 ms | Trạng thái: Hoàn tất | %2").arg(elapsedMs).arg(methodStr));
         } else {
             ui->lblN5Status->setText(QString("Trạng thái: Hoàn tất | %1").arg(methodStr));
+        }
+        if (lastThermalMetrics_.valid && !lastMethodStr_.isEmpty()) {
+            const bool showingDiff = ui->chkShowDiffMap
+                                     && ui->chkShowDiffMap->isChecked()
+                                     && !cachedN5DiffPixmap_.isNull();
+            ui->lblN5EnhancedInfo->setText(formatEnhancementMetricsSummary(
+                lastMethodStr_,
+                lastElapsedMs_,
+                lastAppliedParams_,
+                lastThermalMetrics_,
+                showingDiff));
+        } else if (elapsedMs >= 0) {
+            ui->lblN5EnhancedInfo->setText(QString("Thời gian: %1 ms | Trạng thái: Hoàn tất | %2").arg(elapsedMs).arg(methodStr));
+        } else {
             ui->lblN5EnhancedInfo->setText(QString("Thời gian: — | Trạng thái: Hoàn tất | %1").arg(methodStr));
         }
         ui->lblN5Status->setStyleSheet("background-color: #183329; color: #39BDA7; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
