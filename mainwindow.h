@@ -73,6 +73,7 @@ public:
 protected:
     void closeEvent(QCloseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 private slots:
     void onBrowseDatasetClicked();
@@ -131,6 +132,7 @@ private slots:
 
 private:
     void setupUiControls();
+    void applyThemeAwareStyles();
     void loadDatasetFromDirectory(const QString &dirPath);
     void applyFiltersAndModes();
     void displayPair(const PairItemEntry &entry);

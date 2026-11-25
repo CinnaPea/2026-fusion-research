@@ -19,15 +19,15 @@ InteractiveImageViewer::InteractiveImageViewer(QWidget *parent)
     toolbarWidget_->setObjectName("viewerToolbar");
     toolbarWidget_->setStyleSheet(
         "#viewerToolbar { background-color: rgba(26, 26, 26, 220); border: 1px solid #444444; border-radius: 4px; padding: 2px; }"
-        "QPushButton { background-color: #2b2b2b; color: #d0d0d0; border: 1px solid #555555; border-radius: 3px; padding: 2px 6px; font-size: 11px; font-weight: bold; min-width: 24px; min-height: 20px; }"
+        "QPushButton { background-color: #2b2b2b; color: #d0d0d0; border: 1px solid #555555; border-radius: 3px; padding: 2px 5px; font-size: 11px; font-weight: bold; min-width: 22px; min-height: 20px; }"
         "QPushButton:hover { background-color: #3d3d3d; color: #ffffff; border-color: #777777; }"
         "QPushButton:pressed { background-color: #1e1e1e; }"
-        "QLabel { color: #a0a0a0; font-size: 11px; padding: 0 4px; }"
+        "QLabel { color: #a0a0a0; font-size: 11px; padding: 0 3px; }"
     );
 
     auto *toolbarLayout = new QHBoxLayout(toolbarWidget_);
     toolbarLayout->setContentsMargins(4, 2, 4, 2);
-    toolbarLayout->setSpacing(4);
+    toolbarLayout->setSpacing(3);
 
     btnFit_ = new QPushButton(tr("Vừa"), toolbarWidget_);
     btnFit_->setToolTip(tr("Vừa khung (Fit to view)"));
@@ -216,6 +216,20 @@ void InteractiveImageViewer::updateZoomLabel()
         const int pct = static_cast<int>(std::round(zoomFactor_ * 100.0));
         lblZoomPercent_->setText(QString("%1%").arg(pct));
     }
+    repositionToolbar();
+}
+
+void InteractiveImageViewer::repositionToolbar()
+{
+    if (!toolbarWidget_) {
+        return;
+    }
+    toolbarWidget_->adjustSize();
+    const int tbW = toolbarWidget_->width();
+    const int tbH = toolbarWidget_->height();
+    toolbarWidget_->move(std::max(4, width() - tbW - 6),
+                         std::max(4, height() - tbH - 6));
+    toolbarWidget_->raise();
 }
 
 void InteractiveImageViewer::paintEvent(QPaintEvent *)
@@ -352,15 +366,7 @@ void InteractiveImageViewer::mouseDoubleClickEvent(QMouseEvent *event)
 void InteractiveImageViewer::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
-    if (toolbarWidget_) {
-        toolbarWidget_->adjustSize();
-        // Position toolbar at bottom right
-        const int tbW = toolbarWidget_->width();
-        const int tbH = toolbarWidget_->height();
-        toolbarWidget_->move(std::max(4, width() - tbW - 6),
-                             std::max(4, height() - tbH - 6));
-        toolbarWidget_->raise();
-    }
+    repositionToolbar();
     if (isFitToView_) {
         fitToView();
     }

@@ -11,10 +11,12 @@
 #include <QCloseEvent>
 #include <QColor>
 #include <QCoreApplication>
+#include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPalette>
 #include <QPixmap>
 #include <QResizeEvent>
 #include <QScrollBar>
@@ -45,17 +47,25 @@ MainWindow::MainWindow(QWidget *parent)
 
     setupUiControls();
 
+    // Enforce balanced 50/50 side-by-side image columns on Tab 1 & Tab 2
+    ui->dualImageDisplayLayout->setStretch(0, 1);
+    ui->dualImageDisplayLayout->setStretch(1, 1);
+    ui->n5BodyLayout->setStretch(0, 1);
+    ui->n5BodyLayout->setStretch(1, 0);
+    ui->n5ImagesLayout->setStretch(0, 1);
+    ui->n5ImagesLayout->setStretch(1, 1);
+
     // Splitter layout settings: give maximum space to image viewer
     ui->splitterMain->setStretchFactor(0, 0);
     ui->splitterMain->setStretchFactor(1, 1);
-    ui->splitterMain->setSizes({280, 940});
+    ui->splitterMain->setSizes({255, 1005});
 
-    // Vertical splitter for Tab 2 right panel (Algorithm parameters on top, Log console below)
+    // Vertical splitter for Tab 2 right panel (Controls on top, Log console below)
     ui->splitterN5Right->setCollapsible(0, false);
     ui->splitterN5Right->setCollapsible(1, false);
     ui->splitterN5Right->setStretchFactor(0, 1);
     ui->splitterN5Right->setStretchFactor(1, 0);
-    ui->splitterN5Right->setSizes({540, 150});
+    ui->splitterN5Right->setSizes({440, 170});
 
     // Tooltips on 5 tabs with Phase details
     ui->tabMainWorkspaces->setTabToolTip(0, "Phase 1 - Khám phá, kiểm định và bắt cặp tập dữ liệu");
@@ -133,105 +143,7 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
 
-    // Vertical splitter handle styling
-    ui->splitterN5Right->setStyleSheet(
-        "QSplitter::handle:vertical {"
-        "    background-color: #2b2e38;"
-        "    height: 6px;"
-        "    margin: 2px 0px;"
-        "    border-radius: 2px;"
-        "}"
-        "QSplitter::handle:vertical:hover {"
-        "    background-color: #528bff;"
-        "}"
-    );
-
-    // Algorithm parameters styling
-    ui->grpAlgorithmParams->setStyleSheet(
-        "QGroupBox#grpAlgorithmParams {"
-        "    font-weight: bold;"
-        "    border: 1px solid #3e4451;"
-        "    border-radius: 6px;"
-        "    margin-top: 6px;"
-        "    padding-top: 10px;"
-        "}"
-        "QGroupBox#grpAlgorithmParams::title {"
-        "    subcontrol-origin: margin;"
-        "    subcontrol-position: top left;"
-        "    padding: 0 4px;"
-        "    color: #abb2bf;"
-        "}"
-        "QGroupBox#grpAlgorithmParams QLabel {"
-        "    font-size: 11px;"
-        "    color: #cccccc;"
-        "}"
-        "QGroupBox#grpAlgorithmParams QSpinBox, "
-        "QGroupBox#grpAlgorithmParams QDoubleSpinBox, "
-        "QGroupBox#grpAlgorithmParams QComboBox {"
-        "    background-color: #181a1f;"
-        "    color: #ffffff;"
-        "    border: 1px solid #3e4451;"
-        "    border-radius: 3px;"
-        "    padding: 1px 4px;"
-        "    font-size: 11px;"
-        "}"
-        "QGroupBox#grpAlgorithmParams QSlider::groove:horizontal {"
-        "    height: 4px;"
-        "    background: #3a3f4b;"
-        "    border-radius: 2px;"
-        "}"
-        "QGroupBox#grpAlgorithmParams QSlider::sub-page:horizontal {"
-        "    background: #528bff;"
-        "    border-radius: 2px;"
-        "}"
-        "QGroupBox#grpAlgorithmParams QSlider::handle:horizontal {"
-        "    background: #dcdfe4;"
-        "    border: 1px solid #282c34;"
-        "    width: 14px;"
-        "    margin-top: -5px;"
-        "    margin-bottom: -5px;"
-        "    border-radius: 7px;"
-        "}"
-        "QGroupBox#grpAlgorithmParams QSlider::handle:horizontal:hover {"
-        "    background: #ffffff;"
-        "}"
-        "QGroupBox#grpAlgorithmParams QCheckBox {"
-        "    font-size: 11px;"
-        "    color: #cccccc;"
-        "    spacing: 5px;"
-        "}"
-    );
-    ui->btnParamDefaults->setStyleSheet(
-        "QPushButton#btnParamDefaults {"
-        "    background-color: #333842;"
-        "    color: #e0e0e0;"
-        "    border: 1px solid #4b5263;"
-        "    border-radius: 4px;"
-        "    padding: 5px;"
-        "    font-weight: bold;"
-        "}"
-        "QPushButton#btnParamDefaults:hover {"
-        "    background-color: #3e4451;"
-        "}"
-    );
-    ui->btnApplyN5->setStyleSheet(
-        "QPushButton#btnApplyN5 {"
-        "    background-color: #3b597c;"
-        "    color: #ffffff;"
-        "    border: 1px solid #528bff;"
-        "    border-radius: 4px;"
-        "    padding: 5px;"
-        "    font-weight: bold;"
-        "}"
-        "QPushButton#btnApplyN5:hover {"
-        "    background-color: #4a6f9c;"
-        "}"
-        "QPushButton#btnApplyN5:disabled {"
-        "    background-color: #2b2e38;"
-        "    color: #666666;"
-        "    border: 1px solid #3a3e4b;"
-        "}"
-    );
+    applyThemeAwareStyles();
 
     // Algorithm parameters two-way slider/spinbox synchronization
     connect(ui->sldParamRadius, &QSlider::valueChanged, this, [this](int val) {
@@ -584,6 +496,170 @@ void MainWindow::resizeEvent(QResizeEvent *event)
     } catch (const std::exception &ex) {
         ui->lblSystemStatus->setText(QString("Lỗi resize: %1").arg(ex.what()));
     }
+}
+
+void MainWindow::changeEvent(QEvent *event)
+{
+    QMainWindow::changeEvent(event);
+    if (event && (event->type() == QEvent::PaletteChange
+                  || event->type() == QEvent::ApplicationPaletteChange
+                  || event->type() == QEvent::ThemeChange)) {
+        applyThemeAwareStyles();
+    }
+}
+
+void MainWindow::applyThemeAwareStyles()
+{
+    if (!ui || !ui->grpAlgorithmParams) {
+        return;
+    }
+
+    const bool isDark = palette().color(QPalette::Window).lightness() < 128;
+
+    ui->scrollAreaN5Controls->setStyleSheet("QScrollArea#scrollAreaN5Controls { background: transparent; border: none; }");
+    if (ui->scrollAreaN5Controls->viewport()) {
+        ui->scrollAreaN5Controls->viewport()->setAutoFillBackground(false);
+    }
+    ui->scrollContentN5Controls->setStyleSheet("QWidget#scrollContentN5Controls { background: transparent; }");
+
+    const char *activeTextColor = isDark ? "#e5e7eb" : "#1f2937";
+    const char *metaTextColor = isDark ? "#cbd5e1" : "#374151";
+    const QString activeCtrlStyle = QString("color: %1;").arg(activeTextColor);
+    ui->lblN5ModeLabel->setStyleSheet(activeCtrlStyle);
+    ui->radModeN5->setStyleSheet(activeCtrlStyle);
+    ui->radModeBypass->setStyleSheet(activeCtrlStyle);
+    ui->chkSyncView->setStyleSheet(activeCtrlStyle);
+
+    const QString infoLabelStyle = QString("font-size: 11px; color: %1;").arg(metaTextColor);
+    ui->lblVisibleInfo->setStyleSheet(infoLabelStyle);
+    ui->lblThermalInfo->setStyleSheet(infoLabelStyle);
+    ui->lblN5OriginalInfo->setStyleSheet(infoLabelStyle);
+    ui->lblN5EnhancedInfo->setStyleSheet(infoLabelStyle);
+
+    const char *splitterHandleBg = isDark ? "#2b2e38" : "#d0d5dd";
+    const char *splitterHandleHover = isDark ? "#528bff" : "#2563eb";
+    ui->splitterN5Right->setStyleSheet(
+        QString("QSplitter::handle:vertical {"
+                "    background-color: %1;"
+                "    height: 6px;"
+                "    margin: 2px 0px;"
+                "    border-radius: 2px;"
+                "}"
+                "QSplitter::handle:vertical:hover {"
+                "    background-color: %2;"
+                "}")
+            .arg(splitterHandleBg, splitterHandleHover));
+
+    const char *cardBg = isDark ? "rgba(255, 255, 255, 0.03)" : "#f6f7f9";
+    const char *cardBorder = isDark ? "#3e4451" : "#d0d5dd";
+    const char *titleColor = isDark ? "#abb2bf" : "#667085";
+    const char *labelColor = isDark ? "#b8bec8" : "#475467";
+    const char *noticeColor = isDark ? "#fbbf24" : "#b45309";
+    const char *fieldBg = isDark ? "#1c2026" : "#eaecf0";
+    const char *fieldColor = isDark ? "#d1d5db" : "#475467";
+    const char *grooveBg = isDark ? "#3a3f4b" : "#d0d5dd";
+    const char *subPageBg = isDark ? "#528bff" : "#98a2b3";
+    const char *handleBg = isDark ? "#9ca3af" : "#98a2b3";
+    const char *handleBorder = isDark ? "#282c34" : "#667085";
+
+    ui->grpAlgorithmParams->setStyleSheet(
+        QString("QGroupBox#grpAlgorithmParams {"
+                "    background-color: %1;"
+                "    font-weight: bold;"
+                "    border: 1px solid %2;"
+                "    border-radius: 6px;"
+                "    margin-top: 8px;"
+                "    padding-top: 12px;"
+                "}"
+                "QGroupBox#grpAlgorithmParams::title {"
+                "    subcontrol-origin: margin;"
+                "    subcontrol-position: top left;"
+                "    padding: 0 4px;"
+                "    color: %3;"
+                "}"
+                "QGroupBox#grpAlgorithmParams QLabel {"
+                "    font-size: 11px;"
+                "    color: %4;"
+                "}"
+                "QGroupBox#grpAlgorithmParams QLabel#lblParamNotice {"
+                "    font-size: 11px;"
+                "    font-style: italic;"
+                "    color: %5;"
+                "    padding: 2px;"
+                "}"
+                "QGroupBox#grpAlgorithmParams QSpinBox, "
+                "QGroupBox#grpAlgorithmParams QDoubleSpinBox, "
+                "QGroupBox#grpAlgorithmParams QComboBox {"
+                "    background-color: %6;"
+                "    color: %7;"
+                "    border: 1px solid %2;"
+                "    border-radius: 3px;"
+                "    padding: 1px 4px;"
+                "    font-size: 11px;"
+                "}"
+                "QGroupBox#grpAlgorithmParams QSlider::groove:horizontal {"
+                "    height: 4px;"
+                "    background: %8;"
+                "    border-radius: 2px;"
+                "}"
+                "QGroupBox#grpAlgorithmParams QSlider::sub-page:horizontal {"
+                "    background: %9;"
+                "    border-radius: 2px;"
+                "}"
+                "QGroupBox#grpAlgorithmParams QSlider::handle:horizontal {"
+                "    background: %10;"
+                "    border: 1px solid %11;"
+                "    width: 12px;"
+                "    margin: -4px 0px;"
+                "    border-radius: 6px;"
+                "}"
+                "QGroupBox#grpAlgorithmParams QCheckBox {"
+                "    font-size: 11px;"
+                "    color: %4;"
+                "    spacing: 5px;"
+                "}")
+            .arg(cardBg, cardBorder, titleColor, labelColor, noticeColor,
+                 fieldBg, fieldColor, grooveBg, subPageBg, handleBg, handleBorder));
+
+    const char *defBg = isDark ? "#333842" : "#eaecf0";
+    const char *defColor = isDark ? "#9ca3af" : "#667085";
+    const char *defBorder = isDark ? "#4b5263" : "#d0d5dd";
+    ui->btnParamDefaults->setStyleSheet(
+        QString("QPushButton#btnParamDefaults {"
+                "    background-color: %1;"
+                "    color: %2;"
+                "    border: 1px solid %3;"
+                "    border-radius: 4px;"
+                "    padding: 5px;"
+                "    font-weight: bold;"
+                "}")
+            .arg(defBg, defColor, defBorder));
+
+    const char *applyBg = isDark ? "#3b597c" : "#2563eb";
+    const char *applyHover = isDark ? "#4a6f9c" : "#1d4ed8";
+    const char *applyBorder = isDark ? "#528bff" : "#1d4ed8";
+    const char *applyDisBg = isDark ? "#2b2e38" : "#e5e7eb";
+    const char *applyDisColor = isDark ? "#6b7280" : "#6b7280";
+    const char *applyDisBorder = isDark ? "#3a3e4b" : "#d1d5db";
+    ui->btnApplyN5->setStyleSheet(
+        QString("QPushButton#btnApplyN5 {"
+                "    background-color: %1;"
+                "    color: #ffffff;"
+                "    border: 1px solid %3;"
+                "    border-radius: 4px;"
+                "    padding: 6px 10px;"
+                "    font-weight: bold;"
+                "}"
+                "QPushButton#btnApplyN5:hover {"
+                "    background-color: %2;"
+                "}"
+                "QPushButton#btnApplyN5:disabled {"
+                "    background-color: %4;"
+                "    color: %5;"
+                "    border: 1px solid %6;"
+                "}")
+            .arg(applyBg, applyHover, applyBorder,
+                 applyDisBg, applyDisColor, applyDisBorder));
 }
 
 void MainWindow::onBrowseDatasetClicked()

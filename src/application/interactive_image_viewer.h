@@ -50,6 +50,7 @@ protected:
 
 private:
     void updateZoomLabel();
+    void repositionToolbar();
     void calculateFitParameters(double &outScale, QPointF &outOffset) const;
 
     QPixmap pixmap_;
