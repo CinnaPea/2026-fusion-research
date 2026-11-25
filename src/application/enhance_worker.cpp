@@ -1,11 +1,11 @@
 #include "enhance_worker.h"
 #include "core/enhancement/thermal_input.h"
+#include "core/enhancement/thermal_quality_metrics.h"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <QElapsedTimer>
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <exception>
 #include <system_error>
@@ -19,57 +19,23 @@ struct ThermalExecutionOutput {
     QString errorMessage;
 };
 
-ThermalPlaneStats computePlaneStats(const cv::Mat &gray8)
+ThermalPlaneStats toWorkerPlaneStats(const qart::core::enhancement::PlaneQualityStats &src)
 {
     ThermalPlaneStats stats;
-    if (gray8.empty() || gray8.type() != CV_8UC1) {
-        return stats;
-    }
-
-    stats.valid = true;
-
-    cv::Scalar meanScalar;
-    cv::Scalar stdScalar;
-    cv::meanStdDev(gray8, meanScalar, stdScalar);
-    stats.mean = meanScalar[0];
-    stats.stdDev = stdScalar[0];
-
-    double minV = 0.0;
-    double maxV = 0.0;
-    cv::minMaxLoc(gray8, &minV, &maxV);
-    stats.minVal = static_cast<int>(std::round(minV));
-    stats.maxVal = static_cast<int>(std::round(maxV));
-
-    // Exact 256-bin Shannon entropy (bits/pixel)
-    std::array<std::size_t, 256> hist{};
-    for (int r = 0; r < gray8.rows; ++r) {
-        const auto *rowPtr = gray8.ptr<unsigned char>(r);
-        for (int c = 0; c < gray8.cols; ++c) {
-            hist[rowPtr[c]]++;
-        }
-    }
-    const double totalPx = static_cast<double>(gray8.total());
-    if (totalPx > 0.0) {
-        double entropy = 0.0;
-        for (std::size_t count : hist) {
-            if (count > 0) {
-                const double p = static_cast<double>(count) / totalPx;
-                entropy -= p * std::log2(p);
-            }
-        }
-        stats.entropy = entropy;
-    }
-
-    // Mean Sobel gradient magnitude normalized by 4.0 (0..255 edge strength scale)
-    cv::Mat gx;
-    cv::Mat gy;
-    cv::Sobel(gray8, gx, CV_32F, 1, 0, 3, 1.0, 0.0, cv::BORDER_REFLECT_101);
-    cv::Sobel(gray8, gy, CV_32F, 0, 1, 3, 1.0, 0.0, cv::BORDER_REFLECT_101);
-    cv::Mat mag;
-    cv::magnitude(gx, gy, mag);
-    stats.edgeGradient = cv::mean(mag)[0] / 4.0;
-
+    stats.valid = src.valid;
+    stats.mean = src.mean;
+    stats.stdDev = src.stdDev;
+    stats.entropy = src.informationEntropy;
+    stats.edgeGradient = src.averageGradient;
+    stats.piqe = src.piqe;
+    stats.minVal = src.minVal;
+    stats.maxVal = src.maxVal;
     return stats;
+}
+
+ThermalPlaneStats computePlaneStats(const cv::Mat &gray8)
+{
+    return toWorkerPlaneStats(qart::core::enhancement::computePlaneQualityStats(gray8));
 }
 
 QImage buildDiffHeatmap(const cv::Mat &absDiff, int maxAbsDiff)
@@ -106,51 +72,48 @@ void populateThermalMetricsAndDiff(
     qart::application::ThermalProcessingMode mode,
     EnhanceJobRequest &target)
 {
-    target.appliedParamsSummary = (mode == qart::application::ThermalProcessingMode::N5PostHalf)
-                                      ? QString("GF Base 7×7 | CLAHE(2.0, 8×8) | Post-Half 3×3 (×0.5)")
-                                      : QString("BYPASS (Giữ nguyên đầu vào grayscale)");
+    if (mode == qart::application::ThermalProcessingMode::N5PostHalf) {
+        target.appliedParamsSummary = QString("GF Base 7×7 | CLAHE(2.0, 8×8) | Post-Half 3×3 (×0.5)");
+    } else if (mode == qart::application::ThermalProcessingMode::MsgfExperimental) {
+        target.appliedParamsSummary = QString("MSGF r={3,8,16,32} | CLAHE(2.0, 8×8) | g={0.18,0.12,0.06,0.03}");
+    } else {
+        target.appliedParamsSummary = QString("BYPASS (Giữ nguyên đầu vào grayscale)");
+    }
 
-    if (prepared.empty() || output.empty() || prepared.size() != output.size()) {
+    const auto pairMetrics =
+        qart::core::enhancement::computePairQualityMetrics(prepared, output);
+    if (!pairMetrics.valid) {
         target.metrics = ThermalEnhancementMetrics{};
         target.diffHeatmap = QImage();
         return;
     }
 
-    const ThermalPlaneStats inStats = computePlaneStats(prepared);
-    const ThermalPlaneStats outStats = computePlaneStats(output);
-
     cv::Mat absDiff;
     cv::absdiff(output, prepared, absDiff);
 
-    double maxDiffD = 0.0;
-    cv::minMaxLoc(absDiff, nullptr, &maxDiffD);
-    const int maxAbsDiff = static_cast<int>(std::round(maxDiffD));
-    const double mae = cv::mean(absDiff)[0];
-    const double totalPx = static_cast<double>(absDiff.total());
-    const double changedPct = (totalPx > 0.0)
-                                  ? (100.0 * static_cast<double>(cv::countNonZero(absDiff)) / totalPx)
-                                  : 0.0;
-
     ThermalEnhancementMetrics m;
     m.valid = true;
-    m.inputMean = inStats.mean;
-    m.outputMean = outStats.mean;
-    m.inputStd = inStats.stdDev;
-    m.outputStd = outStats.stdDev;
-    m.inputEntropy = inStats.entropy;
-    m.outputEntropy = outStats.entropy;
-    m.inputEdgeGrad = inStats.edgeGradient;
-    m.outputEdgeGrad = outStats.edgeGradient;
-    m.inputMin = inStats.minVal;
-    m.inputMax = inStats.maxVal;
-    m.outputMin = outStats.minVal;
-    m.outputMax = outStats.maxVal;
-    m.mae = mae;
-    m.maxAbsDiff = maxAbsDiff;
-    m.changedPixelPercent = changedPct;
+    m.inputMean = pairMetrics.input.mean;
+    m.outputMean = pairMetrics.output.mean;
+    m.inputStd = pairMetrics.input.stdDev;
+    m.outputStd = pairMetrics.output.stdDev;
+    m.inputEntropy = pairMetrics.input.informationEntropy;
+    m.outputEntropy = pairMetrics.output.informationEntropy;
+    m.inputEdgeGrad = pairMetrics.input.averageGradient;
+    m.outputEdgeGrad = pairMetrics.output.averageGradient;
+    m.inputPiqe = pairMetrics.input.piqe;
+    m.outputPiqe = pairMetrics.output.piqe;
+    m.inputMin = pairMetrics.input.minVal;
+    m.inputMax = pairMetrics.input.maxVal;
+    m.outputMin = pairMetrics.output.minVal;
+    m.outputMax = pairMetrics.output.maxVal;
+    m.psnr = pairMetrics.psnr;
+    m.mae = pairMetrics.mae;
+    m.maxAbsDiff = pairMetrics.maxAbsDiff;
+    m.changedPixelPercent = pairMetrics.changedPixelPercent;
 
     target.metrics = m;
-    target.diffHeatmap = buildDiffHeatmap(absDiff, maxAbsDiff);
+    target.diffHeatmap = buildDiffHeatmap(absDiff, pairMetrics.maxAbsDiff);
 }
 
 ThermalExecutionOutput executeThermalRequest(

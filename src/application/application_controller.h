@@ -9,6 +9,7 @@
 #include "core/domain/validation/pair_validation_result.h"
 #include "core/visualization/preview_selection.h"
 #include "core/enhancement/n5_thermal_enhancer.h"
+#include "core/enhancement/msgf_thermal_enhancer.h"
 
 #include <memory>
 #include <functional>
@@ -24,7 +25,8 @@ namespace qart::application {
 enum class ThermalProcessingMode
 {
     Bypass,
-    N5PostHalf
+    N5PostHalf,
+    MsgfExperimental
 };
 
 struct ThermalProcessingResult
@@ -210,6 +212,7 @@ private:
     ) const;
 
     std::unique_ptr<core::enhancement::N5ThermalEnhancer> n5Enhancer_;
+    std::unique_ptr<core::enhancement::MsgfThermalEnhancer> msgfEnhancer_;
 };
 
 } // namespace qart::application

@@ -4,6 +4,7 @@
 
 #include "application/application_controller.h"
 
+#include "core/enhancement/msgf_thermal_enhancer.h"
 #include "core/enhancement/n5_thermal_enhancer.h"
 #include "core/enhancement/thermal_input.h"
 
@@ -134,6 +135,35 @@ int main()
                 parent,
                 originalParent,
                 "N5 result aliases source storage"
+            );
+
+            // Explicit MSGF must match direct experimental core processing.
+            auto msgfResult = controller.processThermal(
+                source,
+                ThermalProcessingMode::MsgfExperimental
+            );
+
+            require(
+                msgfResult.appliedMode
+                    == ThermalProcessingMode::MsgfExperimental,
+                "Explicit MSGF mode was not applied"
+            );
+
+            const auto expectedMsgf =
+                qart::core::enhancement::MsgfThermalEnhancer{}.enhance(prepared);
+
+            requireExact(
+                msgfResult.outputImage,
+                expectedMsgf.outputImage,
+                "Controller MSGF differs from direct core MSGF"
+            );
+
+            msgfResult.outputImage.setTo(0);
+
+            requireExact(
+                parent,
+                originalParent,
+                "MSGF result aliases source storage"
             );
 
             // A previous N5 call must not change the default.

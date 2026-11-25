@@ -54,11 +54,12 @@ struct Phase2Record {
     QString partitionId;
     QString sourceStem;
     QString thermalRelPath;
-    QString processingMethod; // "N5" or "BYPASS"
-    QString processingVersion; // "N5PostHalf-v1.0" or "BYPASS-v1.0"
+    QString processingMethod; // "N5", "MSGF", or "BYPASS"
+    QString processingVersion; // "N5PostHalf-v1.0", "MSGF-exp-v1.0", or "BYPASS-v1.0"
     QString status; // "SUCCESS", "ERROR", "CANCELLED"
     std::optional<qint64> elapsedMs;
     QString errorMessage;
+    std::optional<ThermalEnhancementMetrics> metrics;
 };
 
 struct CachedPairEnhancement {
@@ -156,7 +157,10 @@ private:
     void updateListItemDisplay(QListWidgetItem *listItem, const PairItemEntry &entry) const;
     void clearTab1PreviewUi();
 
-    // N5 enhancement helpers
+    // N5 / MSGF / BYPASS enhancement helpers
+    [[nodiscard]] qart::application::ThermalProcessingMode selectedThermalProcessingMode() const;
+    [[nodiscard]] static QString thermalModeDisplayName(qart::application::ThermalProcessingMode mode);
+    [[nodiscard]] static QString thermalModeVersion(const QString &methodStr);
     void setN5UiState(N5UiState state, qint64 elapsedMs = 0, const QString &detailMsg = QString(), const QString &methodOverride = QString());
     void renderCachedN5Images();
     void clearN5EnhancedCache();

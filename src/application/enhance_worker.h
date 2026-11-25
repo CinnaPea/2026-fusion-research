@@ -19,6 +19,7 @@ struct ThermalPlaneStats {
     double stdDev = 0.0;
     double entropy = 0.0;
     double edgeGradient = 0.0;
+    double piqe = 0.0;
     int minVal = 0;
     int maxVal = 0;
 };
@@ -34,10 +35,13 @@ struct ThermalEnhancementMetrics {
     double outputEntropy = 0.0;
     double inputEdgeGrad = 0.0;
     double outputEdgeGrad = 0.0;
+    double inputPiqe = 0.0;
+    double outputPiqe = 0.0;
     int inputMin = 0;
     int inputMax = 0;
     int outputMin = 0;
     int outputMax = 0;
+    double psnr = 0.0;
     double mae = 0.0;
     int maxAbsDiff = 0;
     double changedPixelPercent = 0.0;

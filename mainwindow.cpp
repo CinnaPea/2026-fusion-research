@@ -76,7 +76,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Tooltips on 5 tabs with Phase details
     ui->tabMainWorkspaces->setTabToolTip(0, "Phase 1 - Khám phá, kiểm định và bắt cặp tập dữ liệu");
-    ui->tabMainWorkspaces->setTabToolTip(1, "Phase 2 - Đánh giá chất lượng và tăng cường ảnh nhiệt (N5 / BYPASS)");
+    ui->tabMainWorkspaces->setTabToolTip(1, "Phase 2 - Đánh giá chất lượng và tăng cường ảnh nhiệt (N5 / MSGF / BYPASS)");
     ui->tabMainWorkspaces->setTabToolTip(2, "Phase 3 - Căn chỉnh đồng bộ không gian Visual-Thermal (Chưa triển khai)");
     ui->tabMainWorkspaces->setTabToolTip(3, "Phase 4 - Hợp nhất đa phổ đa cảm biến (Chưa triển khai)");
     ui->tabMainWorkspaces->setTabToolTip(4, "Phase 5/6 - Đánh giá định lượng và xuất báo cáo kết quả (Chưa triển khai)");
@@ -144,6 +144,13 @@ MainWindow::MainWindow(QWidget *parent)
             setN5UiState(N5UiState::NotRun);
         }
     });
+    if (ui->radModeMsgf) {
+        connect(ui->radModeMsgf, &QRadioButton::toggled, this, [this](bool checked) {
+            if (checked && !isBatchEnhancing_ && n5State_ == N5UiState::NotRun) {
+                setN5UiState(N5UiState::NotRun);
+            }
+        });
+    }
     connect(ui->radModeBypass, &QRadioButton::toggled, this, [this](bool checked) {
         if (checked && !isBatchEnhancing_ && n5State_ == N5UiState::NotRun) {
             setN5UiState(N5UiState::NotRun);
@@ -456,7 +463,7 @@ void MainWindow::invalidateActiveSessionAndWorkers(bool clearOriginalViewer)
 
     clearN5EnhancedCache();
     if (ui->viewerN5Enhanced) {
-        ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
+        ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5, MSGF hoặc BYPASS"));
     }
 
     ui->prgN5->setVisible(false);
@@ -555,6 +562,9 @@ void MainWindow::applyThemeAwareStyles()
     const QString activeCtrlStyle = QString("color: %1;").arg(activeTextColor);
     ui->lblN5ModeLabel->setStyleSheet(activeCtrlStyle);
     ui->radModeN5->setStyleSheet(activeCtrlStyle);
+    if (ui->radModeMsgf) {
+        ui->radModeMsgf->setStyleSheet(activeCtrlStyle);
+    }
     ui->radModeBypass->setStyleSheet(activeCtrlStyle);
     ui->chkSyncView->setStyleSheet(activeCtrlStyle);
     if (ui->chkShowDiffMap) {
@@ -1183,7 +1193,7 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
                     ui->lblN5EnhancedInfo->setText(QString("Thời gian: — | Đang nạp kết quả %1...").arg(cachedEnh->methodStr));
                 } else {
                     if (ui->viewerN5Enhanced) {
-                        ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
+                        ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5, MSGF hoặc BYPASS"));
                     }
                     ui->lblN5Status->setText("Trạng thái: Đang nạp...");
                     ui->lblN5Status->setStyleSheet("background-color: #3b2d18; color: #E5A93C; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
@@ -1432,8 +1442,7 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
         }
 
         if (result.rehydratedEnhancement && thrOk && !result.rehydratedEnhancedImage.isNull()) {
-            const QString modeStr =
-                (result.rehydratedMode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
+            const QString modeStr = thermalModeDisplayName(result.rehydratedMode);
             EnhanceJobRequest synthReq;
             synthReq.pairId = result.pairId;
             synthReq.mode = result.rehydratedMode;
@@ -1459,7 +1468,7 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
         } else if (!preserveExistingEnhanced) {
             // STALE INVALIDATION: Xóa kết quả N5 cũ khi nạp cặp chưa xử lý
             clearN5EnhancedCache();
-            ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
+            ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5, MSGF hoặc BYPASS"));
 
             if (!activeThermalValid_) {
                 ui->btnApplyN5->setEnabled(false);
@@ -2392,10 +2401,8 @@ void MainWindow::onApplyN5Clicked()
         const auto &pair = entry.pair;
         std::filesystem::path fullPath = appController_.datasetRoot() / pair.thermalRelativePath();
 
-        const auto mode = ui->radModeBypass->isChecked()
-                              ? qart::application::ThermalProcessingMode::Bypass
-                              : qart::application::ThermalProcessingMode::N5PostHalf;
-        const QString modeStr = (mode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
+        const auto mode = selectedThermalProcessingMode();
+        const QString modeStr = thermalModeDisplayName(mode);
 
         // 1. Chuyển UI sang trạng thái Processing và khóa nút Apply chống spam click
         setN5UiState(N5UiState::Processing, 0, QString(), modeStr);
@@ -2449,7 +2456,7 @@ void MainWindow::onSingleWorkerFinished(const EnhanceJobRequest &request,
         return;
     }
 
-    const QString modeStr = (request.mode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
+    const QString modeStr = thermalModeDisplayName(request.mode);
 
     if (success && !resultImage.isNull()) {
         storePairEnhancementResult(request, resultImage, elapsedMs, modeStr);
@@ -2474,9 +2481,10 @@ void MainWindow::onSingleWorkerFinished(const EnhanceJobRequest &request,
         rec.pairId = request.pairId;
         rec.datasetId = request.datasetId;
         rec.processingMethod = modeStr;
-        rec.processingVersion = (modeStr == "BYPASS") ? "BYPASS-v1.0" : "N5PostHalf-v1.0";
+        rec.processingVersion = thermalModeVersion(modeStr);
         rec.status = "SUCCESS";
         rec.elapsedMs = elapsedMs;
+        rec.metrics = request.metrics;
         phase2Results_.push_back(rec);
     } else {
         removePairEnhancementCache(request.pairId);
@@ -2490,7 +2498,7 @@ void MainWindow::onSingleWorkerFinished(const EnhanceJobRequest &request,
         rec.pairId = request.pairId;
         rec.datasetId = request.datasetId;
         rec.processingMethod = modeStr;
-        rec.processingVersion = (modeStr == "BYPASS") ? "BYPASS-v1.0" : "N5PostHalf-v1.0";
+        rec.processingVersion = thermalModeVersion(modeStr);
         rec.status = "ERROR";
         rec.elapsedMs = elapsedMs > 0 ? std::optional<qint64>(elapsedMs) : std::nullopt;
         rec.errorMessage = errorMessage;
@@ -2530,10 +2538,8 @@ void MainWindow::onEnhanceAllClicked()
         retireSingleWorker();
         currentRequestId_++;
 
-        const auto mode = ui->radModeBypass->isChecked()
-                              ? qart::application::ThermalProcessingMode::Bypass
-                              : qart::application::ThermalProcessingMode::N5PostHalf;
-        const QString modeStr = (mode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
+        const auto mode = selectedThermalProcessingMode();
+        const QString modeStr = thermalModeDisplayName(mode);
 
         std::vector<EnhanceJobRequest> requests;
         requests.reserve(displayedItems_.size());
@@ -2719,7 +2725,7 @@ void MainWindow::onBatchStepFinished(quint64 sessionId,
         );
     }
 
-    const QString modeStr = (request.mode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
+    const QString modeStr = thermalModeDisplayName(request.mode);
 
     if (success && !resultImage.isNull()) {
         storePairEnhancementResult(request, resultImage, elapsedMs, modeStr);
@@ -2730,9 +2736,10 @@ void MainWindow::onBatchStepFinished(quint64 sessionId,
         rec.pairId = request.pairId;
         rec.datasetId = request.datasetId;
         rec.processingMethod = modeStr;
-        rec.processingVersion = (modeStr == "BYPASS") ? "BYPASS-v1.0" : "N5PostHalf-v1.0";
+        rec.processingVersion = thermalModeVersion(modeStr);
         rec.status = "SUCCESS";
         rec.elapsedMs = elapsedMs;
+        rec.metrics = request.metrics;
         phase2Results_.push_back(rec);
     } else {
         removePairEnhancementCache(request.pairId);
@@ -2746,7 +2753,7 @@ void MainWindow::onBatchStepFinished(quint64 sessionId,
         rec.pairId = request.pairId;
         rec.datasetId = request.datasetId;
         rec.processingMethod = modeStr;
-        rec.processingVersion = (modeStr == "BYPASS") ? "BYPASS-v1.0" : "N5PostHalf-v1.0";
+        rec.processingVersion = thermalModeVersion(modeStr);
         rec.status = request.isSkipped ? "SKIPPED" : "ERROR";
         rec.elapsedMs = elapsedMs > 0 ? std::optional<qint64>(elapsedMs) : std::nullopt;
         rec.errorMessage = errorMessage;
@@ -2957,8 +2964,18 @@ void MainWindow::onExportPhase2Clicked()
 
     QString csv = QStringLiteral(
         "pair_id,dataset_id,processing_method,"
-        "processing_version,status,elapsed_ms,error_message\r\n"
+        "processing_version,status,elapsed_ms,error_message,"
+        "input_mean,output_mean,input_std,output_std,"
+        "input_ie,output_ie,input_ag,output_ag,"
+        "input_piqe,output_piqe,psnr,mae,max_delta,changed_pct\r\n"
     );
+
+    const auto formatNum = [](double value, int prec) -> QString {
+        if (!std::isfinite(value)) {
+            return QStringLiteral("inf");
+        }
+        return QString::number(value, 'f', prec);
+    };
 
     for (const auto &record : records) {
         const QString elapsed =
@@ -2974,6 +2991,28 @@ void MainWindow::onExportPhase2Clicked()
                << csvField(record.status)
                << csvField(elapsed)
                << csvField(record.errorMessage);
+
+        if (record.metrics.has_value() && record.metrics->valid) {
+            const auto &m = *record.metrics;
+            fields << csvField(formatNum(m.inputMean, 2))
+                   << csvField(formatNum(m.outputMean, 2))
+                   << csvField(formatNum(m.inputStd, 2))
+                   << csvField(formatNum(m.outputStd, 2))
+                   << csvField(formatNum(m.inputEntropy, 4))
+                   << csvField(formatNum(m.outputEntropy, 4))
+                   << csvField(formatNum(m.inputEdgeGrad, 4))
+                   << csvField(formatNum(m.outputEdgeGrad, 4))
+                   << csvField(formatNum(m.inputPiqe, 2))
+                   << csvField(formatNum(m.outputPiqe, 2))
+                   << csvField(formatNum(m.psnr, 2))
+                   << csvField(formatNum(m.mae, 2))
+                   << csvField(QString::number(m.maxAbsDiff))
+                   << csvField(formatNum(m.changedPixelPercent, 2));
+        } else {
+            for (int i = 0; i < 14; ++i) {
+                fields << csvField(QString());
+            }
+        }
 
         csv += fields.join(QLatin1Char(','));
         csv += QStringLiteral("\r\n");
@@ -3048,12 +3087,49 @@ void MainWindow::onExportPhase2Clicked()
     );
 }
 
+qart::application::ThermalProcessingMode MainWindow::selectedThermalProcessingMode() const
+{
+    if (ui && ui->radModeBypass && ui->radModeBypass->isChecked()) {
+        return qart::application::ThermalProcessingMode::Bypass;
+    }
+    if (ui && ui->radModeMsgf && ui->radModeMsgf->isChecked()) {
+        return qart::application::ThermalProcessingMode::MsgfExperimental;
+    }
+    return qart::application::ThermalProcessingMode::N5PostHalf;
+}
+
+// static
+QString MainWindow::thermalModeDisplayName(qart::application::ThermalProcessingMode mode)
+{
+    switch (mode) {
+    case qart::application::ThermalProcessingMode::Bypass:
+        return QStringLiteral("BYPASS");
+    case qart::application::ThermalProcessingMode::N5PostHalf:
+        return QStringLiteral("N5");
+    case qart::application::ThermalProcessingMode::MsgfExperimental:
+        return QStringLiteral("MSGF");
+    }
+    return QStringLiteral("N5");
+}
+
+// static
+QString MainWindow::thermalModeVersion(const QString &methodStr)
+{
+    if (methodStr == QLatin1String("BYPASS")) {
+        return QStringLiteral("BYPASS-v1.0");
+    }
+    if (methodStr == QLatin1String("MSGF")) {
+        return QStringLiteral("MSGF-exp-v1.0");
+    }
+    return QStringLiteral("N5PostHalf-v1.0");
+}
+
 void MainWindow::setN5UiState(N5UiState state, qint64 elapsedMs, const QString &detailMsg, const QString &methodOverride)
 {
     n5State_ = state;
     const QString methodStr = !methodOverride.isEmpty()
                                   ? methodOverride
-                                  : ((ui->radModeBypass && ui->radModeBypass->isChecked()) ? "BYPASS" : "N5");
+                                  : thermalModeDisplayName(selectedThermalProcessingMode());
 
     // Batch execution owns prgN5 & btnEnhanceAll while active so single-image state updates never interrupt it.
     if (isBatchEnhancing_) {
@@ -3154,12 +3230,17 @@ void MainWindow::clearN5EnhancedCache()
 QString MainWindow::formatEnhancementLogMetrics(const ThermalEnhancementMetrics &m)
 {
     if (!m.valid) return QString();
-    return QString("Mean %1→%2 Std %3→%4 Entropy %5→%6 bit/px "
-                   "Edge %7→%8 MAE=%9 MaxΔ=%10 Changed=%11%")
+    const QString psnrStr = std::isfinite(m.psnr)
+        ? QString("%1 dB").arg(m.psnr, 0, 'f', 2)
+        : QString("∞ dB");
+    return QString("Mean %1→%2 Std %3→%4 IE %5→%6 bit/px "
+                   "AG %7→%8 PIQE %9→%10 PSNR=%11 MAE=%12 MaxΔ=%13 Changed=%14%")
         .arg(m.inputMean,  0, 'f', 1).arg(m.outputMean,    0, 'f', 1)
         .arg(m.inputStd,   0, 'f', 1).arg(m.outputStd,     0, 'f', 1)
         .arg(m.inputEntropy,  0, 'f', 2).arg(m.outputEntropy,  0, 'f', 2)
-        .arg(m.inputEdgeGrad, 0, 'f', 1).arg(m.outputEdgeGrad, 0, 'f', 1)
+        .arg(m.inputEdgeGrad, 0, 'f', 2).arg(m.outputEdgeGrad, 0, 'f', 2)
+        .arg(m.inputPiqe,     0, 'f', 1).arg(m.outputPiqe,     0, 'f', 1)
+        .arg(psnrStr)
         .arg(m.mae,  0, 'f', 1)
         .arg(m.maxAbsDiff)
         .arg(m.changedPixelPercent, 0, 'f', 1);
@@ -3174,13 +3255,14 @@ QString MainWindow::formatOriginalMetricsSummary(const QString &baseInfo,
     }
     const QString statsText = QString(
         "Mean: %1 | Std: %2 | Dải: %3..%4\n"
-        "Entropy: %5 bit/px | Edge: %6")
+        "IE: %5 bit/px | AG: %6 | PIQE: %7")
         .arg(stats.mean, 0, 'f', 1)
         .arg(stats.stdDev, 0, 'f', 1)
         .arg(stats.minVal)
         .arg(stats.maxVal)
         .arg(stats.entropy, 0, 'f', 2)
-        .arg(stats.edgeGradient, 0, 'f', 1);
+        .arg(stats.edgeGradient, 0, 'f', 2)
+        .arg(stats.piqe, 0, 'f', 1);
     if (baseInfo.isEmpty()) {
         return statsText;
     }
@@ -3210,12 +3292,16 @@ QString MainWindow::formatEnhancementMetricsSummary(
         ? QString(" | %1 · [Diff |Sau − Trước| Inferno]").arg(methodStr)
         : QString(" | %1").arg(methodStr);
 
+    const QString psnrStr = std::isfinite(m.psnr)
+        ? QString("%1 dB").arg(m.psnr, 0, 'f', 2)
+        : QString("∞ dB");
+
     return QString(
         "Thời gian: %1 ms%2\n"
         "Params: %3\n"
         "Mean: %4 (%5) | Std: %6 (%7) | Dải: %8..%9\n"
-        "Entropy: %10 (%11) bit/px | Edge: %12 (%13)\n"
-        "MAE: %14 | MaxΔ: %15 | Thay đổi: %16%")
+        "IE: %10 (%11) bit/px | AG: %12 (%13) | PIQE: %14 (%15)\n"
+        "PSNR: %16 | MAE: %17 | MaxΔ: %18 | Thay đổi: %19%")
         .arg(elapsedMs)
         .arg(headerSuffix, appliedParams)
         .arg(m.outputMean, 0, 'f', 1)
@@ -3226,8 +3312,11 @@ QString MainWindow::formatEnhancementMetricsSummary(
         .arg(m.outputMax)
         .arg(m.outputEntropy, 0, 'f', 2)
         .arg(formatSignedDelta(m.outputEntropy - m.inputEntropy, 2))
-        .arg(m.outputEdgeGrad, 0, 'f', 1)
-        .arg(formatSignedDelta(m.outputEdgeGrad - m.inputEdgeGrad, 1))
+        .arg(m.outputEdgeGrad, 0, 'f', 2)
+        .arg(formatSignedDelta(m.outputEdgeGrad - m.inputEdgeGrad, 2))
+        .arg(m.outputPiqe, 0, 'f', 1)
+        .arg(formatSignedDelta(m.outputPiqe - m.inputPiqe, 1))
+        .arg(psnrStr)
         .arg(m.mae, 0, 'f', 1)
         .arg(m.maxAbsDiff)
         .arg(m.changedPixelPercent, 0, 'f', 1);
@@ -3257,6 +3346,7 @@ void MainWindow::updateEnhancedResultDisplay(
         origStats.stdDev = request.metrics.inputStd;
         origStats.entropy = request.metrics.inputEntropy;
         origStats.edgeGradient = request.metrics.inputEdgeGrad;
+        origStats.piqe = request.metrics.inputPiqe;
         origStats.minVal = request.metrics.inputMin;
         origStats.maxVal = request.metrics.inputMax;
         activeN5OriginalStats_ = origStats;
@@ -3435,7 +3525,7 @@ void MainWindow::renderCachedN5Images()
         if (!pix.isNull()) {
             ui->viewerN5Enhanced->setPixmap(pix, true);
         } else {
-            ui->viewerN5Enhanced->clearImage("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS");
+            ui->viewerN5Enhanced->clearImage("Bấm 'Áp dụng xử lý' để chạy N5, MSGF hoặc BYPASS");
         }
     }
 }

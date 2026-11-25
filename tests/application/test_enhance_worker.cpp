@@ -13,6 +13,7 @@
 #include <opencv2/imgcodecs.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -426,8 +427,13 @@ int main(int argc, char* argv[])
             require(n5OutReq.metrics.valid, "Single N5 metrics invalid");
             require(n5OutReq.metrics.maxAbsDiff > 0 && n5OutReq.metrics.mae > 0.0,
                     "Single N5 metrics expected positive diff");
+            require(std::isfinite(n5OutReq.metrics.psnr) && n5OutReq.metrics.psnr > 0.0,
+                    "Single N5 expected finite positive PSNR");
             require(n5OutReq.metrics.inputMean > 0.0 && n5OutReq.metrics.inputEntropy > 0.0,
                     "Single N5 input baseline metrics missing");
+            require(std::isfinite(n5OutReq.metrics.inputPiqe) && n5OutReq.metrics.inputPiqe > 0.0
+                        && std::isfinite(n5OutReq.metrics.outputPiqe) && n5OutReq.metrics.outputPiqe > 0.0,
+                    "Single N5 PIQE metrics invalid");
             require(!n5OutReq.diffHeatmap.isNull()
                         && n5OutReq.diffHeatmap.size() == n5Img.size(),
                     "Single N5 diffHeatmap invalid");
@@ -462,10 +468,44 @@ int main(int argc, char* argv[])
             require(bypassOutReq.metrics.valid, "Single BYPASS metrics invalid");
             require(bypassOutReq.metrics.maxAbsDiff == 0
                         && bypassOutReq.metrics.mae == 0.0
-                        && bypassOutReq.metrics.changedPixelPercent == 0.0,
-                    "Single BYPASS metrics expected zero delta");
+                        && bypassOutReq.metrics.changedPixelPercent == 0.0
+                        && std::isinf(bypassOutReq.metrics.psnr),
+                    "Single BYPASS metrics expected zero delta and +inf PSNR");
             require(bypassOutReq.appliedParamsSummary.contains("BYPASS"),
                     "Single BYPASS appliedParamsSummary missing BYPASS");
+
+            EnhanceJobRequest msgfReq = n5Req;
+            msgfReq.requestId = 32;
+            msgfReq.mode = ThermalProcessingMode::MsgfExperimental;
+
+            SingleEnhanceWorkerThread msgfWorker(msgfReq);
+            EnhanceJobRequest msgfOutReq;
+            QImage msgfImg;
+            bool msgfOk = false;
+            QEventLoop msgfLoop;
+            QObject::connect(&msgfWorker, &SingleEnhanceWorkerThread::jobFinished,
+                             &app, [&](const EnhanceJobRequest& req,
+                                       const QImage& img,
+                                       qint64,
+                                       bool success,
+                                       const QString&) {
+                                 msgfOutReq = req;
+                                 msgfImg = img;
+                                 msgfOk = success;
+                                 msgfLoop.quit();
+                             });
+            msgfWorker.start();
+            msgfLoop.exec();
+            msgfWorker.wait();
+
+            require(msgfOk && !msgfImg.isNull(), "SingleEnhanceWorkerThread MSGF failed");
+            require(msgfOutReq.metrics.valid, "Single MSGF metrics invalid");
+            require(msgfOutReq.metrics.maxAbsDiff > 0
+                        && std::isfinite(msgfOutReq.metrics.psnr)
+                        && std::isfinite(msgfOutReq.metrics.outputPiqe),
+                    "Single MSGF metrics invalid");
+            require(msgfOutReq.appliedParamsSummary.contains("MSGF"),
+                    "Single MSGF appliedParamsSummary missing MSGF");
         }
 
         std::cout << "Enhance worker uncached preview/batch contract passed\n";

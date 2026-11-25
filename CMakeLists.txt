@@ -217,6 +217,12 @@ add_library(qart_core STATIC
 
         src/core/enhancement/n5_thermal_enhancer.cpp
         src/core/enhancement/n5_thermal_enhancer.h
+
+        src/core/enhancement/msgf_thermal_enhancer.cpp
+        src/core/enhancement/msgf_thermal_enhancer.h
+
+        src/core/enhancement/thermal_quality_metrics.cpp
+        src/core/enhancement/thermal_quality_metrics.h
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
@@ -969,6 +975,44 @@ if(BUILD_TESTING)
             PROPERTIES LABELS "phase2;application;enhancement;worker"
     )
 
+    add_executable(test_thermal_quality_metrics
+            tests/enhancement/test_thermal_quality_metrics.cpp
+    )
+
+    target_link_libraries(test_thermal_quality_metrics
+            PRIVATE
+            qart_core
+            ${OpenCV_LIBS}
+    )
+
+    add_test(
+            NAME ThermalQualityMetricsContract
+            COMMAND test_thermal_quality_metrics
+    )
+
+    set_tests_properties(ThermalQualityMetricsContract
+            PROPERTIES LABELS "phase2;enhancement;metrics"
+    )
+
+    add_executable(test_msgf_thermal_enhancer
+            tests/enhancement/test_msgf_thermal_enhancer.cpp
+    )
+
+    target_link_libraries(test_msgf_thermal_enhancer
+            PRIVATE
+            qart_core
+            ${OpenCV_LIBS}
+    )
+
+    add_test(
+            NAME MsgfThermalContract
+            COMMAND test_msgf_thermal_enhancer
+    )
+
+    set_tests_properties(MsgfThermalContract
+            PROPERTIES LABELS "phase2;enhancement;msgf"
+    )
+
     if(QART_PHASE2_N5_FIXTURE_DIR)
         if(NOT EXISTS "${QART_PHASE2_N5_FIXTURE_DIR}/cases.txt")
             message(FATAL_ERROR
@@ -1342,6 +1386,28 @@ if(BUILD_TESTING)
         )
     endif()
 endif()
+
+
+# ---------------------------------------------------------------------------
+# Experimental Tools
+# ---------------------------------------------------------------------------
+
+add_executable(compare_n5_vs_msgf
+        tools/compare_n5_vs_msgf.cpp
+        src/application/application_controller.cpp
+)
+
+target_include_directories(compare_n5_vs_msgf
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(compare_n5_vs_msgf
+        PRIVATE
+        qart_core
+        ${OpenCV_LIBS}
+)
 
 
 # ---------------------------------------------------------------------------

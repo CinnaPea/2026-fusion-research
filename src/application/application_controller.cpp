@@ -73,6 +73,7 @@ ThermalProcessingResult ApplicationController::processThermal(
     if (
         mode != ThermalProcessingMode::Bypass
         && mode != ThermalProcessingMode::N5PostHalf
+        && mode != ThermalProcessingMode::MsgfExperimental
     ) {
         throw std::invalid_argument(
             "Unsupported thermal processing mode"
@@ -88,6 +89,21 @@ ThermalProcessingResult ApplicationController::processThermal(
         return {
             core::enhancement::bypassThermal(prepared),
             ThermalProcessingMode::Bypass
+        };
+    }
+
+    if (mode == ThermalProcessingMode::MsgfExperimental) {
+        if (!msgfEnhancer_) {
+            msgfEnhancer_ = std::make_unique<
+                core::enhancement::MsgfThermalEnhancer
+            >();
+        }
+
+        auto enhanced = msgfEnhancer_->enhance(prepared);
+
+        return {
+            std::move(enhanced.outputImage),
+            ThermalProcessingMode::MsgfExperimental
         };
     }
 

@@ -633,7 +633,7 @@
                   <property name="minimumSize">
                    <size>
                     <width>0</width>
-                    <height>104</height>
+                    <height>124</height>
                    </size>
                   </property>
                   <property name="text">
@@ -665,7 +665,7 @@
                 </size>
                </property>
                <property name="title">
-                <string>Kết quả xử lý (N5 / BYPASS)</string>
+                <string>Kết quả xử lý (N5 / MSGF / BYPASS)</string>
                </property>
                <layout class="QVBoxLayout" name="n5EnhLayout">
                 <item>
@@ -695,7 +695,7 @@
                   <property name="minimumSize">
                    <size>
                     <width>0</width>
-                    <height>104</height>
+                    <height>124</height>
                    </size>
                   </property>
                   <property name="text">
@@ -729,7 +729,7 @@
               </size>
              </property>
              <property name="title">
-              <string>Bảng điều khiển N5 &amp;&amp; BYPASS</string>
+              <string>Bảng điều khiển N5 / MSGF / BYPASS</string>
              </property>
              <layout class="QVBoxLayout" name="n5ControlsLayout">
               <property name="leftMargin">
@@ -818,6 +818,16 @@
                     <widget class="QRadioButton" name="radModeN5">
                      <property name="text">
                       <string>N5 Post-Half (Tăng cường)</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QRadioButton" name="radModeMsgf">
+                     <property name="toolTip">
+                      <string>Thử nghiệm MSGF: Multi-Scale Guided Filter r={3,8,16,32} + CLAHE(2.0, 8×8) trên base + khuếch đại chi tiết {0.18, 0.12, 0.06, 0.03}.</string>
+                     </property>
+                     <property name="text">
+                      <string>MSGF (Thử nghiệm — Multi-Scale GF)</string>
                      </property>
                     </widget>
                    </item>
