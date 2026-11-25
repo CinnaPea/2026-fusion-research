@@ -535,6 +535,7 @@ void PreviewWorkerThread::run()
     PreviewJobResult result;
     result.sessionId = request_.sessionId;
     result.requestId = request_.requestId;
+    result.enhancementRequestId = request_.enhancementRequestId;
     result.itemIndex = request_.itemIndex;
     if (request_.pair.has_value()) {
         result.pairId = QString::fromStdString(request_.pair->pairId());
@@ -630,28 +631,52 @@ void PreviewWorkerThread::run()
 
             if (request_.rehydrateMode.has_value()
                 && result.validationResult.has_value()
-                && result.validationResult->thermalDecoded()) {
+                && result.validationResult->thermalDecoded())
+            {
                 QElapsedTimer rehydrateTimer;
                 rehydrateTimer.start();
-                qart::application::ApplicationController workerController;
-                EnhanceJobRequest tempReq;
-                tempReq.mode = *request_.rehydrateMode;
-                const auto execResult = executeThermalRequest(
-                    workerController,
-                    thrPath,
-                    *request_.rehydrateMode,
-                    &tempReq,
-                    false
-                );
-                if (execResult.success && !execResult.image.isNull()) {
-                    result.rehydratedEnhancement = true;
-                    result.rehydratedMode = *request_.rehydrateMode;
-                    result.rehydratedEnhancedImage = execResult.image;
-                    result.rehydratedDiffHeatmap = std::move(tempReq.diffHeatmap);
-                    result.rehydratedMetrics = tempReq.metrics;
-                    result.rehydratedAppliedParams = std::move(tempReq.appliedParamsSummary);
-                    result.rehydratedElapsedMs = rehydrateTimer.elapsed();
+
+                try {
+                    qart::application::ApplicationController workerController;
+
+                    EnhanceJobRequest tempReq;
+                    tempReq.mode = *request_.rehydrateMode;
+
+                    const auto execResult = executeThermalRequest(
+                        workerController,
+                        thrPath,
+                        *request_.rehydrateMode,
+                        &tempReq,
+                        false
+                    );
+
+                    if (execResult.success && !execResult.image.isNull()) {
+                        result.rehydratedEnhancement = true;
+                        result.rehydratedMode = *request_.rehydrateMode;
+                        result.rehydratedEnhancedImage = execResult.image;
+                        result.rehydratedDiffHeatmap =
+                            std::move(tempReq.diffHeatmap);
+                        result.rehydratedMetrics = tempReq.metrics;
+                        result.rehydratedAppliedParams =
+                            std::move(tempReq.appliedParamsSummary);
+                    } else {
+                        result.rehydrationError =
+                            execResult.errorMessage.isEmpty()
+                                ? QStringLiteral(
+                                      "Không thể tái tạo kết quả xử lý.")
+                                : execResult.errorMessage;
+                    }
+                } catch (const std::exception &ex) {
+                    result.rehydrationError =
+                        QString("Lỗi tái tạo kết quả: %1")
+                            .arg(QString::fromUtf8(ex.what()));
+                } catch (...) {
+                    result.rehydrationError =
+                        QStringLiteral(
+                            "Lỗi không xác định khi tái tạo kết quả.");
                 }
+
+                result.rehydratedElapsedMs = rehydrateTimer.elapsed();
             }
         }
 

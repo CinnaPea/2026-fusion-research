@@ -1200,6 +1200,7 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
         PreviewJobRequest req;
         req.sessionId = currentSessionId_;
         req.requestId = currentPreviewRequestId_;
+        req.enhancementRequestId = currentRequestId_;
         req.itemIndex = index;
         req.pair = entry.pair;
         req.validationResult = entry.validationResult;
@@ -1270,7 +1271,7 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
             tr("Kiểm định chưa hoàn tất — chưa xác định trạng thái giải mã.")
         );
 
-        if (!isBatchEnhancing_) {
+        if (!isBatchEnhancing_ && result.enhancementRequestId == currentRequestId_) {
             activeN5PairId_ = result.pairId;
             activeThermalValid_ = false;
 
@@ -1431,31 +1432,87 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
             ui->viewerN5Original->clearImage("Lỗi giải mã ảnh nhiệt");
         }
 
-        if (result.rehydratedEnhancement && thrOk && !result.rehydratedEnhancedImage.isNull()) {
-            const QString modeStr =
-                (result.rehydratedMode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
+        // Reset, explicit Apply or a new batch supersedes this restoration.
+        // Source preview above may still update; enhancement state must not.
+        if (result.enhancementRequestId != currentRequestId_) {
+            return;
+        }
+
+        if (!result.rehydrationError.isEmpty()) {
+            clearN5EnhancedCache();
+            ui->viewerN5Enhanced->clearImage(
+                tr("Không thể tái tạo kết quả đã xử lý")
+            );
+
+            appendLog(
+                QString("Restore failed [%1]: %2")
+                    .arg(result.pairId, result.rehydrationError)
+            );
+
+            // Thermal validity remains independent of restoration success.
+            // Existing Error-state logic permits explicit Apply to retry.
+            setN5UiState(
+                N5UiState::Error,
+                0,
+                result.rehydrationError
+            );
+            return;
+        }
+
+        if (result.rehydratedEnhancement
+                && thrOk
+                && !result.rehydratedEnhancedImage.isNull()) {
+            const auto *cached = findPairEnhancement(result.pairId);
+
+            // The original result must still exist and match this mode.
+            if (cached == nullptr
+                || cached->mode != result.rehydratedMode) {
+                return;
+                }
+
+            // Keep the original execution time, not restoration overhead.
+            const qint64 originalElapsedMs = cached->elapsedMs;
+            const QString modeStr = cached->methodStr;
+
             EnhanceJobRequest synthReq;
             synthReq.pairId = result.pairId;
             synthReq.mode = result.rehydratedMode;
             synthReq.metrics = result.rehydratedMetrics;
             synthReq.diffHeatmap = result.rehydratedDiffHeatmap;
-            synthReq.appliedParamsSummary = result.rehydratedAppliedParams;
+            synthReq.appliedParamsSummary =
+                result.rehydratedAppliedParams;
 
-            storePairEnhancementResult(synthReq,
-                                       result.rehydratedEnhancedImage,
-                                       result.rehydratedElapsedMs,
-                                       modeStr);
-            updateEnhancedResultDisplay(synthReq,
-                                        result.rehydratedEnhancedImage,
-                                        result.rehydratedElapsedMs,
-                                        modeStr);
-            ui->btnApplyN5->setToolTip(tr("Áp dụng xử lý thuật toán cho ảnh nhiệt."));
-            setN5UiState(N5UiState::Completed, result.rehydratedElapsedMs, QString(), modeStr);
-        } else if (const auto *cachedEnh = thrOk ? findPairEnhancement(result.pairId) : nullptr;
-                   cachedEnh != nullptr && !cachedEnh->resultImage.isNull()) {
-            displayCachedPairEnhancement(*cachedEnh);
-            ui->btnApplyN5->setToolTip(tr("Áp dụng xử lý thuật toán cho ảnh nhiệt."));
-            setN5UiState(N5UiState::Completed, cachedEnh->elapsedMs, QString(), cachedEnh->methodStr);
+            storePairEnhancementResult(
+                synthReq,
+                result.rehydratedEnhancedImage,
+                originalElapsedMs,
+                modeStr
+            );
+            updateEnhancedResultDisplay(
+                synthReq,
+                result.rehydratedEnhancedImage,
+                originalElapsedMs,
+                modeStr
+            );
+
+            appendLog(
+                QString(
+                    "Restored %1 [%2] by background recomputation "
+                    "in %3 ms; original execution time: %4 ms.")
+                    .arg(result.pairId, modeStr)
+                    .arg(result.rehydratedElapsedMs)
+                    .arg(originalElapsedMs)
+            );
+
+            ui->btnApplyN5->setToolTip(
+                tr("Áp dụng xử lý thuật toán cho ảnh nhiệt.")
+            );
+            setN5UiState(
+                N5UiState::Completed,
+                originalElapsedMs,
+                QString(),
+                modeStr
+            );
         } else if (!preserveExistingEnhanced) {
             // STALE INVALIDATION: Xóa kết quả N5 cũ khi nạp cặp chưa xử lý
             clearN5EnhancedCache();
@@ -3174,7 +3231,7 @@ QString MainWindow::formatOriginalMetricsSummary(const QString &baseInfo,
     }
     const QString statsText = QString(
         "Mean: %1 | Std: %2 | Dải: %3..%4\n"
-        "Entropy: %5 bit/px | Edge: %6")
+        "Entropy: %5 bit/px | Sobel/4: %6")
         .arg(stats.mean, 0, 'f', 1)
         .arg(stats.stdDev, 0, 'f', 1)
         .arg(stats.minVal)
@@ -3206,16 +3263,18 @@ QString MainWindow::formatEnhancementMetricsSummary(
         return QString("+%1").arg(clean, 0, 'f', precision);
     };
 
-    const QString headerSuffix = showingDiffMap
-        ? QString(" | %1 · [Diff |Sau − Trước| Inferno]").arg(methodStr)
-        : QString(" | %1").arg(methodStr);
+    const QString headerSuffix = showingDiffMap ? QString(
+              " | %1 · [Diff Inferno: 0..%2 Gray8; "
+              "thang màu riêng từng ảnh]")
+              .arg(methodStr)
+              .arg(m.maxAbsDiff) : QString(" | %1").arg(methodStr);
 
-    return QString(
-        "Thời gian: %1 ms%2\n"
-        "Params: %3\n"
-        "Mean: %4 (%5) | Std: %6 (%7) | Dải: %8..%9\n"
-        "Entropy: %10 (%11) bit/px | Edge: %12 (%13)\n"
-        "MAE: %14 | MaxΔ: %15 | Thay đổi: %16%")
+    return QString("Lần chạy gốc: %1 ms%2\n"
+            "(Gồm đọc ảnh, xử lý, thống kê và diff)\n"
+            "Params: %3\n"
+            "Mean: %4 (%5) | Std: %6 (%7) | Dải: %8..%9\n"
+            "Entropy: %10 (%11) bit/px | Sobel/4: %12 (%13)\n"
+            "MAE so với đầu vào: %14 | MaxΔ: %15 | Thay đổi: %16%")
         .arg(elapsedMs)
         .arg(headerSuffix, appliedParams)
         .arg(m.outputMean, 0, 'f', 1)

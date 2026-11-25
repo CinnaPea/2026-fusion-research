@@ -68,6 +68,7 @@ Q_DECLARE_METATYPE(EnhanceJobRequest)
 struct PreviewJobRequest {
     quint64 sessionId = 0;
     quint64 requestId = 0;
+    quint64 enhancementRequestId = 0;
     int itemIndex = -1;
     std::optional<qart::core::domain::datasets::DatasetPair> pair;
     std::optional<qart::core::domain::validation::PairValidationResult> validationResult;
@@ -79,6 +80,7 @@ Q_DECLARE_METATYPE(PreviewJobRequest)
 struct PreviewJobResult {
     quint64 sessionId = 0;
     quint64 requestId = 0;
+    quint64 enhancementRequestId = 0;
     int itemIndex = -1;
     QString pairId;
     std::optional<qart::core::domain::validation::PairValidationResult> validationResult;
@@ -99,6 +101,7 @@ struct PreviewJobResult {
     ThermalEnhancementMetrics rehydratedMetrics;
     QString rehydratedAppliedParams;
     qint64 rehydratedElapsedMs = -1;
+    QString rehydrationError;
 };
 Q_DECLARE_METATYPE(PreviewJobResult)
 
