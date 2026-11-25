@@ -248,6 +248,37 @@ int main(int argc, char* argv[])
             require(!received.validationResult.has_value(), "Empty datasetRoot preview must not synthesize MissingThermal");
         }
 
+        // 4b. PreviewWorkerThread with rehydrateMode re-computes evicted enhancement off GUI thread.
+        {
+            PreviewJobRequest req;
+            req.sessionId = 1;
+            req.requestId = 12;
+            req.itemIndex = 0;
+            req.pair = validPair;
+            req.datasetRoot = root;
+            req.rehydrateMode = ThermalProcessingMode::N5PostHalf;
+
+            PreviewWorkerThread worker(req);
+            PreviewJobResult received;
+            QEventLoop loop;
+            QObject::connect(&worker, &PreviewWorkerThread::previewFinished,
+                             &app, [&](const PreviewJobResult& res) {
+                                 received = res;
+                                 loop.quit();
+                             });
+            worker.start();
+            loop.exec();
+            worker.wait();
+
+            require(received.rehydratedEnhancement, "Preview rehydrate did not populate enhancement");
+            require(!received.rehydratedEnhancedImage.isNull(), "Preview rehydratedEnhancedImage null");
+            require(!received.rehydratedDiffHeatmap.isNull(), "Preview rehydratedDiffHeatmap null");
+            require(received.rehydratedMetrics.valid && received.rehydratedMetrics.maxAbsDiff > 0,
+                    "Preview rehydratedMetrics invalid");
+            require(received.rehydratedAppliedParams.contains("GF Base"),
+                    "Preview rehydratedAppliedParams missing");
+        }
+
         // 5. BatchEnhanceWorkerThread on uncached pairs:
         //    - validPair (uncached) -> validates in worker and processes N5 cleanly
         //    - mismatchPair (uncached) -> DimensionMismatch, thermalDecoded() == true -> still processes N5 cleanly!

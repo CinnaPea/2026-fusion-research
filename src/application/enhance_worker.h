@@ -72,6 +72,7 @@ struct PreviewJobRequest {
     std::optional<qart::core::domain::datasets::DatasetPair> pair;
     std::optional<qart::core::domain::validation::PairValidationResult> validationResult;
     std::filesystem::path datasetRoot;
+    std::optional<qart::application::ThermalProcessingMode> rehydrateMode;
 };
 Q_DECLARE_METATYPE(PreviewJobRequest)
 
@@ -91,6 +92,13 @@ struct PreviewJobResult {
     ThermalPlaneStats sourceStats;
     QString channelDesc;
     QString errorMessage;
+    bool rehydratedEnhancement = false;
+    qart::application::ThermalProcessingMode rehydratedMode = qart::application::ThermalProcessingMode::Bypass;
+    QImage rehydratedEnhancedImage;
+    QImage rehydratedDiffHeatmap;
+    ThermalEnhancementMetrics rehydratedMetrics;
+    QString rehydratedAppliedParams;
+    qint64 rehydratedElapsedMs = -1;
 };
 Q_DECLARE_METATYPE(PreviewJobResult)
 

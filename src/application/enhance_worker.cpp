@@ -464,6 +464,9 @@ void BatchEnhanceWorkerThread::run()
                                      errorCount,
                                      skippedCount,
                                      cancelledCount);
+                // Release large transient images in worker vector so long batches keep flat RAM.
+                job.sourcePreview = QImage();
+                job.diffHeatmap = QImage();
             } catch (const std::exception &ex) {
                 errorCount++;
                 emit jobStepFinished(sessionId_,
@@ -623,6 +626,32 @@ void PreviewWorkerThread::run()
                                          .arg(dispW)
                                          .arg(dispH)
                                          .arg(result.irChannels);
+            }
+
+            if (request_.rehydrateMode.has_value()
+                && result.validationResult.has_value()
+                && result.validationResult->thermalDecoded()) {
+                QElapsedTimer rehydrateTimer;
+                rehydrateTimer.start();
+                qart::application::ApplicationController workerController;
+                EnhanceJobRequest tempReq;
+                tempReq.mode = *request_.rehydrateMode;
+                const auto execResult = executeThermalRequest(
+                    workerController,
+                    thrPath,
+                    *request_.rehydrateMode,
+                    &tempReq,
+                    false
+                );
+                if (execResult.success && !execResult.image.isNull()) {
+                    result.rehydratedEnhancement = true;
+                    result.rehydratedMode = *request_.rehydrateMode;
+                    result.rehydratedEnhancedImage = execResult.image;
+                    result.rehydratedDiffHeatmap = std::move(tempReq.diffHeatmap);
+                    result.rehydratedMetrics = tempReq.metrics;
+                    result.rehydratedAppliedParams = std::move(tempReq.appliedParamsSummary);
+                    result.rehydratedElapsedMs = rehydrateTimer.elapsed();
+                }
             }
         }
 

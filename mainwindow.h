@@ -9,6 +9,8 @@
 #include <QPointer>
 #include <filesystem>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "core/domain/datasets/dataset_pair.h"
@@ -57,6 +59,21 @@ struct Phase2Record {
     QString status; // "SUCCESS", "ERROR", "CANCELLED"
     std::optional<qint64> elapsedMs;
     QString errorMessage;
+};
+
+struct CachedPairEnhancement {
+    qart::application::ThermalProcessingMode mode = qart::application::ThermalProcessingMode::Bypass;
+    QString methodStr;
+    qint64 elapsedMs = -1;
+    QString appliedParamsSummary;
+    ThermalEnhancementMetrics metrics;
+    QImage resultImage;
+    QImage diffHeatmap;
+    mutable quint64 lastUsedSeq = 0;
+
+    [[nodiscard]] qsizetype imageBytes() const noexcept {
+        return resultImage.sizeInBytes() + diffHeatmap.sizeInBytes();
+    }
 };
 
 class MainWindow : public QMainWindow
@@ -147,6 +164,17 @@ private:
                                      const QImage &resultImage,
                                      qint64 elapsedMs,
                                      const QString &methodStr);
+    void storePairEnhancementResult(const EnhanceJobRequest &request,
+                                    const QImage &resultImage,
+                                    qint64 elapsedMs,
+                                    const QString &methodStr);
+    void trimPairEnhancementPixelCache(const std::string &protectedPairId);
+    void clearAllPairEnhancementCache();
+    void removePairEnhancementCache(const QString &pairId);
+    void refreshPairListDisplayById(const QString &pairId, int hintIndex = -1);
+    [[nodiscard]]
+    const CachedPairEnhancement *findPairEnhancement(const QString &pairId) const;
+    void displayCachedPairEnhancement(const CachedPairEnhancement &cached);
     [[nodiscard]]
     static QString formatOriginalMetricsSummary(const QString &baseInfo,
                                                   const ThermalPlaneStats &stats);
@@ -224,5 +252,9 @@ private:
 
     // Storage for Phase 2 results
     std::vector<Phase2Record> phase2Results_;
+    std::unordered_map<std::string, CachedPairEnhancement> pairEnhancementCache_;
+    mutable quint64 cacheAccessSeq_ = 0;
+    qsizetype cachedEnhancementPixelBytes_ = 0;
+    static constexpr qsizetype kMaxEnhancementCacheBytes = 192LL * 1024 * 1024;
 };
 #endif // MAINWINDOW_H
