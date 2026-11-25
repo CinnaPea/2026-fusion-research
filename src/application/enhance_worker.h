@@ -13,6 +13,26 @@
 #include "core/domain/datasets/dataset_pair.h"
 #include "core/domain/validation/pair_validation_result.h"
 
+struct ThermalEnhancementMetrics {
+    bool valid = false;
+    double inputMean = 0.0;
+    double outputMean = 0.0;
+    double inputStd = 0.0;
+    double outputStd = 0.0;
+    double inputEntropy = 0.0;
+    double outputEntropy = 0.0;
+    double inputEdgeGrad = 0.0;
+    double outputEdgeGrad = 0.0;
+    int inputMin = 0;
+    int inputMax = 0;
+    int outputMin = 0;
+    int outputMax = 0;
+    double mae = 0.0;
+    int maxAbsDiff = 0;
+    double changedPixelPercent = 0.0;
+};
+Q_DECLARE_METATYPE(ThermalEnhancementMetrics)
+
 struct EnhanceJobRequest {
     quint64 sessionId = 0;
     quint64 requestId = 0;
@@ -27,6 +47,9 @@ struct EnhanceJobRequest {
     std::optional<qart::core::domain::validation::PairValidationResult> validationResult;
     QImage sourcePreview;
     int sourceChannels = 0;
+    ThermalEnhancementMetrics metrics;
+    QImage diffHeatmap;
+    QString appliedParamsSummary;
 };
 Q_DECLARE_METATYPE(EnhanceJobRequest)
 

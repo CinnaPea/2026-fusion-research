@@ -1,8 +1,12 @@
 #include "enhance_worker.h"
+#include "core/enhancement/thermal_input.h"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <QElapsedTimer>
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <exception>
 #include <system_error>
 #include <stdexcept>
@@ -15,11 +19,153 @@ struct ThermalExecutionOutput {
     QString errorMessage;
 };
 
+struct PlaneStats {
+    double mean = 0.0;
+    double stdDev = 0.0;
+    double entropy = 0.0;
+    double edgeGradient = 0.0;
+    int minVal = 0;
+    int maxVal = 0;
+};
+
+PlaneStats computePlaneStats(const cv::Mat &gray8)
+{
+    PlaneStats stats;
+    if (gray8.empty() || gray8.type() != CV_8UC1) {
+        return stats;
+    }
+
+    cv::Scalar meanScalar;
+    cv::Scalar stdScalar;
+    cv::meanStdDev(gray8, meanScalar, stdScalar);
+    stats.mean = meanScalar[0];
+    stats.stdDev = stdScalar[0];
+
+    double minV = 0.0;
+    double maxV = 0.0;
+    cv::minMaxLoc(gray8, &minV, &maxV);
+    stats.minVal = static_cast<int>(std::round(minV));
+    stats.maxVal = static_cast<int>(std::round(maxV));
+
+    // Exact 256-bin Shannon entropy (bits/pixel)
+    std::array<std::size_t, 256> hist{};
+    for (int r = 0; r < gray8.rows; ++r) {
+        const auto *rowPtr = gray8.ptr<unsigned char>(r);
+        for (int c = 0; c < gray8.cols; ++c) {
+            hist[rowPtr[c]]++;
+        }
+    }
+    const double totalPx = static_cast<double>(gray8.total());
+    if (totalPx > 0.0) {
+        double entropy = 0.0;
+        for (std::size_t count : hist) {
+            if (count > 0) {
+                const double p = static_cast<double>(count) / totalPx;
+                entropy -= p * std::log2(p);
+            }
+        }
+        stats.entropy = entropy;
+    }
+
+    // Mean Sobel gradient magnitude normalized by 4.0 (0..255 edge strength scale)
+    cv::Mat gx;
+    cv::Mat gy;
+    cv::Sobel(gray8, gx, CV_32F, 1, 0, 3, 1.0, 0.0, cv::BORDER_REFLECT_101);
+    cv::Sobel(gray8, gy, CV_32F, 0, 1, 3, 1.0, 0.0, cv::BORDER_REFLECT_101);
+    cv::Mat mag;
+    cv::magnitude(gx, gy, mag);
+    stats.edgeGradient = cv::mean(mag)[0] / 4.0;
+
+    return stats;
+}
+
+QImage buildDiffHeatmap(const cv::Mat &absDiff, int maxAbsDiff)
+{
+    if (absDiff.empty() || absDiff.type() != CV_8UC1) {
+        return QImage();
+    }
+
+    cv::Mat stretched(absDiff.size(), CV_8UC1, cv::Scalar(0));
+    if (maxAbsDiff > 0) {
+        const double scale = 255.0 / static_cast<double>(maxAbsDiff);
+        absDiff.convertTo(stretched, CV_8UC1, scale);
+    }
+
+    cv::Mat colorBgr;
+    cv::applyColorMap(stretched, colorBgr, cv::COLORMAP_INFERNO);
+    if (maxAbsDiff == 0) {
+        // Ensure zero change renders cleanly as pure dark background
+        colorBgr.setTo(cv::Scalar(0, 0, 0));
+    }
+
+    cv::Mat colorRgb;
+    cv::cvtColor(colorBgr, colorRgb, cv::COLOR_BGR2RGB);
+    return QImage(colorRgb.data,
+                  colorRgb.cols,
+                  colorRgb.rows,
+                  static_cast<int>(colorRgb.step),
+                  QImage::Format_RGB888).copy();
+}
+
+void populateThermalMetricsAndDiff(
+    const cv::Mat &prepared,
+    const cv::Mat &output,
+    qart::application::ThermalProcessingMode mode,
+    EnhanceJobRequest &target)
+{
+    target.appliedParamsSummary = (mode == qart::application::ThermalProcessingMode::N5PostHalf)
+                                      ? QString("GF Base 7×7 · CLAHE(clip=2.0, 8×8) · Post-Half 3×3 (×0.5)")
+                                      : QString("BYPASS (Giữ nguyên đầu vào grayscale đã chuẩn bị)");
+
+    if (prepared.empty() || output.empty() || prepared.size() != output.size()) {
+        target.metrics = ThermalEnhancementMetrics{};
+        target.diffHeatmap = QImage();
+        return;
+    }
+
+    const PlaneStats inStats = computePlaneStats(prepared);
+    const PlaneStats outStats = computePlaneStats(output);
+
+    cv::Mat absDiff;
+    cv::absdiff(output, prepared, absDiff);
+
+    double maxDiffD = 0.0;
+    cv::minMaxLoc(absDiff, nullptr, &maxDiffD);
+    const int maxAbsDiff = static_cast<int>(std::round(maxDiffD));
+    const double mae = cv::mean(absDiff)[0];
+    const double totalPx = static_cast<double>(absDiff.total());
+    const double changedPct = (totalPx > 0.0)
+                                  ? (100.0 * static_cast<double>(cv::countNonZero(absDiff)) / totalPx)
+                                  : 0.0;
+
+    ThermalEnhancementMetrics m;
+    m.valid = true;
+    m.inputMean = inStats.mean;
+    m.outputMean = outStats.mean;
+    m.inputStd = inStats.stdDev;
+    m.outputStd = outStats.stdDev;
+    m.inputEntropy = inStats.entropy;
+    m.outputEntropy = outStats.entropy;
+    m.inputEdgeGrad = inStats.edgeGradient;
+    m.outputEdgeGrad = outStats.edgeGradient;
+    m.inputMin = inStats.minVal;
+    m.inputMax = inStats.maxVal;
+    m.outputMin = outStats.minVal;
+    m.outputMax = outStats.maxVal;
+    m.mae = mae;
+    m.maxAbsDiff = maxAbsDiff;
+    m.changedPixelPercent = changedPct;
+
+    target.metrics = m;
+    target.diffHeatmap = buildDiffHeatmap(absDiff, maxAbsDiff);
+}
+
 ThermalExecutionOutput executeThermalRequest(
     qart::application::ApplicationController &workerController,
     const std::filesystem::path &thermalPath,
     qart::application::ThermalProcessingMode mode,
-    EnhanceJobRequest *previewJob = nullptr)
+    EnhanceJobRequest *requestTarget = nullptr,
+    bool captureSourcePreview = false)
 {
     std::error_code fsErr;
     const bool exists = std::filesystem::exists(thermalPath, fsErr);
@@ -62,12 +208,12 @@ ThermalExecutionOutput executeThermalRequest(
     }
 
     // Use the already-decoded source. Never create QPixmap in this thread.
-    if (previewJob != nullptr) {
-        previewJob->sourcePreview = QImage();
-        previewJob->sourceChannels = raw.channels();
+    if (requestTarget != nullptr && captureSourcePreview) {
+        requestTarget->sourcePreview = QImage();
+        requestTarget->sourceChannels = raw.channels();
 
         if (raw.type() == CV_8UC1) {
-            previewJob->sourcePreview =
+            requestTarget->sourcePreview =
                 QImage(
                     raw.data,
                     raw.cols,
@@ -79,7 +225,7 @@ ThermalExecutionOutput executeThermalRequest(
             cv::Mat rgb;
             cv::cvtColor(raw, rgb, cv::COLOR_BGR2RGB);
 
-            previewJob->sourcePreview =
+            requestTarget->sourcePreview =
                 QImage(
                     rgb.data,
                     rgb.cols,
@@ -91,7 +237,7 @@ ThermalExecutionOutput executeThermalRequest(
             cv::Mat rgba;
             cv::cvtColor(raw, rgba, cv::COLOR_BGRA2RGBA);
 
-            previewJob->sourcePreview =
+            requestTarget->sourcePreview =
                 QImage(
                     rgba.data,
                     rgba.cols,
@@ -113,6 +259,11 @@ ThermalExecutionOutput executeThermalRequest(
         };
     }
 
+    if (requestTarget != nullptr) {
+        const cv::Mat prepared = qart::core::enhancement::prepareThermalUint8Plane(raw);
+        populateThermalMetricsAndDiff(prepared, outMat, mode, *requestTarget);
+    }
+
     QImage qImg(outMat.data,
                 outMat.cols,
                 outMat.rows,
@@ -131,6 +282,7 @@ SingleEnhanceWorkerThread::SingleEnhanceWorkerThread(EnhanceJobRequest request, 
     : QThread(parent)
     , request_(std::move(request))
 {
+    qRegisterMetaType<ThermalEnhancementMetrics>("ThermalEnhancementMetrics");
     qRegisterMetaType<EnhanceJobRequest>("EnhanceJobRequest");
 }
 
@@ -157,7 +309,9 @@ void SingleEnhanceWorkerThread::run()
         const auto execResult = executeThermalRequest(
             workerController,
             request_.thermalFullPath,
-            request_.mode
+            request_.mode,
+            &request_,
+            false
         );
         const qint64 elapsedMs = timer.elapsed();
 
@@ -198,6 +352,7 @@ BatchEnhanceWorkerThread::BatchEnhanceWorkerThread(quint64 sessionId,
     , batchId_(batchId)
     , requests_(std::move(requests))
 {
+    qRegisterMetaType<ThermalEnhancementMetrics>("ThermalEnhancementMetrics");
     qRegisterMetaType<EnhanceJobRequest>("EnhanceJobRequest");
 }
 
@@ -292,7 +447,8 @@ void BatchEnhanceWorkerThread::run()
                     workerController,
                     job.thermalFullPath,
                     job.mode,
-                    &job
+                    &job,
+                    true
                 );
                 const qint64 elapsedMs = timer.elapsed();
 

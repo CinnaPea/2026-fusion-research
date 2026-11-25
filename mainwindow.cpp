@@ -142,6 +142,18 @@ MainWindow::MainWindow(QWidget *parent)
             setN5UiState(N5UiState::NotRun);
         }
     });
+    connect(ui->chkShowDiffMap, &QCheckBox::toggled, this, [this](bool) {
+        renderCachedN5Images();
+        if (!cachedN5EnhancedPixmap_.isNull() && !lastMethodStr_.isEmpty()) {
+            const bool showingDiff = ui->chkShowDiffMap->isChecked() && !cachedN5DiffPixmap_.isNull();
+            ui->lblN5EnhancedInfo->setText(formatEnhancementMetricsSummary(
+                lastMethodStr_,
+                lastElapsedMs_,
+                lastAppliedParams_,
+                lastThermalMetrics_,
+                showingDiff));
+        }
+    });
 
     applyThemeAwareStyles();
 
@@ -426,7 +438,7 @@ void MainWindow::invalidateActiveSessionAndWorkers(bool clearOriginalViewer)
         }
     }
 
-    cachedN5EnhancedPixmap_ = QPixmap();
+    clearN5EnhancedCache();
     if (ui->viewerN5Enhanced) {
         ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
     }
@@ -529,6 +541,9 @@ void MainWindow::applyThemeAwareStyles()
     ui->radModeN5->setStyleSheet(activeCtrlStyle);
     ui->radModeBypass->setStyleSheet(activeCtrlStyle);
     ui->chkSyncView->setStyleSheet(activeCtrlStyle);
+    if (ui->chkShowDiffMap) {
+        ui->chkShowDiffMap->setStyleSheet(activeCtrlStyle);
+    }
 
     const QString infoLabelStyle = QString("font-size: 11px; color: %1;").arg(metaTextColor);
     ui->lblVisibleInfo->setStyleSheet(infoLabelStyle);
@@ -1105,7 +1120,7 @@ void MainWindow::onPairSelected(QListWidgetItem *item)
         if (!isBatchEnhancing_) {
             activeN5PairId_ = pairIdQStr;
             cachedN5OriginalPixmap_ = QPixmap();
-            cachedN5EnhancedPixmap_ = QPixmap();
+            clearN5EnhancedCache();
             ui->lblN5PairInfo->setText(QString("Cặp ảnh: %1 (Stem: %2 | Partition: %3)")
                                            .arg(pairIdQStr,
                                                 QString::fromStdString(entry.pair.sourceStem()),
@@ -1203,7 +1218,7 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
             activeThermalValid_ = false;
 
             cachedN5OriginalPixmap_ = QPixmap();
-            cachedN5EnhancedPixmap_ = QPixmap();
+            clearN5EnhancedCache();
 
             ui->lblN5PairInfo->setText(
                 QString("Cặp ảnh: %1").arg(result.pairId)
@@ -1344,7 +1359,7 @@ void MainWindow::onPreviewFinished(const PreviewJobResult &result)
         }
 
         // STALE INVALIDATION: Xóa kết quả N5 cũ khi nạp cặp mới
-        cachedN5EnhancedPixmap_ = QPixmap();
+        clearN5EnhancedCache();
         ui->viewerN5Enhanced->clearImage(tr("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS"));
 
         if (!activeThermalValid_) {
@@ -2336,21 +2351,19 @@ void MainWindow::onSingleWorkerFinished(const EnhanceJobRequest &request,
     const QString modeStr = (request.mode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
 
     if (success && !resultImage.isNull()) {
-        cachedN5EnhancedPixmap_ = QPixmap::fromImage(resultImage);
-        ui->viewerN5Enhanced->setPixmap(cachedN5EnhancedPixmap_, false);
-        ui->viewerN5Enhanced->fitToView();
-
-        if (ui->chkSyncView->isChecked()) {
-            ui->viewerN5Enhanced->setSyncViewport(ui->viewerN5Original->zoomFactor(), ui->viewerN5Original->panOffset());
-        }
-
+        updateEnhancedResultDisplay(request, resultImage, elapsedMs, modeStr);
         setN5UiState(N5UiState::Completed, elapsedMs, QString(), modeStr);
-        appendLog(QString("Finished enhancement for pair %1 in %2 ms (Method: %3).").arg(request.pairId).arg(elapsedMs).arg(modeStr));
 
-        if (modeStr == "BYPASS") {
-            ui->lblN5EnhancedInfo->setText(QString("Thời gian: %1 ms | Trạng thái: Hoàn tất | BYPASS (Giữ nguyên đầu vào grayscale đã chuẩn bị)").arg(elapsedMs));
+        if (request.metrics.valid) {
+            appendLog(QString("Finished enhancement for pair %1 in %2 ms (Method: %3 | Params: %4 | %5).")
+                          .arg(request.pairId)
+                          .arg(elapsedMs)
+                          .arg(modeStr, request.appliedParamsSummary, formatEnhancementLogMetrics(request.metrics)));
         } else {
-            ui->lblN5EnhancedInfo->setText(QString("Thời gian: %1 ms | Trạng thái: Hoàn tất | N5 (Tăng cường từ đầu vào grayscale đã chuẩn bị)").arg(elapsedMs));
+            appendLog(QString("Finished enhancement for pair %1 in %2 ms (Method: %3).")
+                          .arg(request.pairId)
+                          .arg(elapsedMs)
+                          .arg(modeStr));
         }
 
         // Lưu kết quả thực vào danh sách Phase 2 với đúng datasetId và mode của request
@@ -2363,7 +2376,7 @@ void MainWindow::onSingleWorkerFinished(const EnhanceJobRequest &request,
         rec.elapsedMs = elapsedMs;
         phase2Results_.push_back(rec);
     } else {
-        cachedN5EnhancedPixmap_ = QPixmap();
+        clearN5EnhancedCache();
         ui->viewerN5Enhanced->clearImage(QString("Lỗi: %1").arg(errorMessage));
         setN5UiState(N5UiState::Error, elapsedMs, errorMessage, modeStr);
         appendLog(QString("Failed to process %1 for pair %2: %3").arg(modeStr, request.pairId, errorMessage));
@@ -2602,13 +2615,7 @@ void MainWindow::onBatchStepFinished(quint64 sessionId,
     const QString modeStr = (request.mode == qart::application::ThermalProcessingMode::Bypass) ? "BYPASS" : "N5";
 
     if (success && !resultImage.isNull()) {
-        cachedN5EnhancedPixmap_ = QPixmap::fromImage(resultImage);
-        ui->viewerN5Enhanced->setPixmap(cachedN5EnhancedPixmap_, false);
-        ui->viewerN5Enhanced->fitToView();
-        if (ui->chkSyncView->isChecked()) {
-            ui->viewerN5Enhanced->setSyncViewport(ui->viewerN5Original->zoomFactor(), ui->viewerN5Original->panOffset());
-        }
-        ui->lblN5EnhancedInfo->setText(QString("Cặp: %1 | %2 OK (%3 ms)").arg(request.pairId, modeStr).arg(elapsedMs));
+        updateEnhancedResultDisplay(request, resultImage, elapsedMs, modeStr);
 
         Phase2Record rec;
         rec.pairId = request.pairId;
@@ -2619,7 +2626,7 @@ void MainWindow::onBatchStepFinished(quint64 sessionId,
         rec.elapsedMs = elapsedMs;
         phase2Results_.push_back(rec);
     } else {
-        cachedN5EnhancedPixmap_ = QPixmap();
+        clearN5EnhancedCache();
         ui->viewerN5Enhanced->clearImage(QString("Lỗi/Bỏ qua: %1").arg(errorMessage));
         ui->lblN5EnhancedInfo->setText(QString("Cặp: %1 | %2").arg(request.pairId, errorMessage));
         appendLog(QString("Batch item (%1): pair %2 - %3").arg(request.isSkipped ? "Skipped" : "Error", request.pairId, errorMessage));
@@ -3000,18 +3007,126 @@ void MainWindow::setN5UiState(N5UiState state, qint64 elapsedMs, const QString &
     }
 }
 
+void MainWindow::clearN5EnhancedCache()
+{
+    cachedN5EnhancedPixmap_ = QPixmap();
+    cachedN5DiffPixmap_     = QPixmap();
+    lastThermalMetrics_     = ThermalEnhancementMetrics{};
+    lastMethodStr_.clear();
+    lastAppliedParams_.clear();
+    lastElapsedMs_ = -1;
+    if (ui->chkShowDiffMap) {
+        QSignalBlocker b(ui->chkShowDiffMap);
+        ui->chkShowDiffMap->setEnabled(false);
+        ui->chkShowDiffMap->setChecked(false);
+    }
+}
+
+// static
+QString MainWindow::formatEnhancementLogMetrics(const ThermalEnhancementMetrics &m)
+{
+    if (!m.valid) return QString();
+    return QString("Mean %1→%2 Std %3→%4 Entropy %5→%6 bit/px "
+                   "Edge %7→%8 MAE=%9 MaxΔ=%10 Changed=%11%")
+        .arg(m.inputMean,  0, 'f', 1).arg(m.outputMean,    0, 'f', 1)
+        .arg(m.inputStd,   0, 'f', 1).arg(m.outputStd,     0, 'f', 1)
+        .arg(m.inputEntropy,  0, 'f', 2).arg(m.outputEntropy,  0, 'f', 2)
+        .arg(m.inputEdgeGrad, 0, 'f', 1).arg(m.outputEdgeGrad, 0, 'f', 1)
+        .arg(m.mae,  0, 'f', 1)
+        .arg(m.maxAbsDiff)
+        .arg(m.changedPixelPercent, 0, 'f', 1);
+}
+
+// static
+QString MainWindow::formatEnhancementMetricsSummary(
+    const QString &methodStr, qint64 elapsedMs, const QString &appliedParams,
+    const ThermalEnhancementMetrics &m, bool showingDiffMap)
+{
+    if (!m.valid) {
+        return QString("Thời gian: %1 ms | Trạng thái: Hoàn tất | %2")
+            .arg(elapsedMs).arg(methodStr);
+    }
+    QString base = QString(
+        "Thời gian: %1 ms | %2\n"
+        "Params: %3\n"
+        "Mean: %4 → %5 | Std: %6 → %7\n"
+        "Entropy: %8 → %9 bit/px | Edge: %10 → %11\n"
+        "MAE: %12 | MaxΔ: %13 | Thay đổi: %14%")
+        .arg(elapsedMs).arg(methodStr, appliedParams)
+        .arg(m.inputMean,  0, 'f', 1).arg(m.outputMean,    0, 'f', 1)
+        .arg(m.inputStd,   0, 'f', 1).arg(m.outputStd,     0, 'f', 1)
+        .arg(m.inputEntropy,  0, 'f', 2).arg(m.outputEntropy,  0, 'f', 2)
+        .arg(m.inputEdgeGrad, 0, 'f', 1).arg(m.outputEdgeGrad, 0, 'f', 1)
+        .arg(m.mae,  0, 'f', 1)
+        .arg(m.maxAbsDiff)
+        .arg(m.changedPixelPercent, 0, 'f', 1);
+    if (showingDiffMap) {
+        base += "\n[Hiển thị: Bản đồ chênh lệch |Sau − Trước| (Inferno)]";
+    }
+    return base;
+}
+
+void MainWindow::updateEnhancedResultDisplay(
+    const EnhanceJobRequest &request,
+    const QImage             &resultImage,
+    qint64                    elapsedMs,
+    const QString            &methodStr)
+{
+    lastMethodStr_      = methodStr;
+    lastElapsedMs_      = elapsedMs;
+    lastAppliedParams_  = request.appliedParamsSummary;
+    lastThermalMetrics_ = request.metrics;
+
+    cachedN5EnhancedPixmap_ = QPixmap::fromImage(resultImage);
+    cachedN5DiffPixmap_     = request.diffHeatmap.isNull()
+                                  ? QPixmap()
+                                  : QPixmap::fromImage(request.diffHeatmap);
+
+    // Enable diff-map checkbox only when a real diff exists
+    const bool hasDiff = !cachedN5DiffPixmap_.isNull() && request.metrics.maxAbsDiff > 0;
+    if (ui->chkShowDiffMap) {
+        ui->chkShowDiffMap->setEnabled(hasDiff);
+        if (!hasDiff) {
+            QSignalBlocker b(ui->chkShowDiffMap);
+            ui->chkShowDiffMap->setChecked(false);
+        }
+    }
+
+    const bool showingDiff = hasDiff
+                             && ui->chkShowDiffMap
+                             && ui->chkShowDiffMap->isChecked();
+    const QPixmap &displayPix = showingDiff ? cachedN5DiffPixmap_ : cachedN5EnhancedPixmap_;
+    ui->viewerN5Enhanced->setPixmap(displayPix, false);
+    ui->viewerN5Enhanced->fitToView();
+
+    if (ui->chkSyncView && ui->chkSyncView->isChecked()) {
+        ui->viewerN5Enhanced->setSyncViewport(
+            ui->viewerN5Original->zoomFactor(),
+            ui->viewerN5Original->panOffset());
+    }
+
+    ui->lblN5EnhancedInfo->setText(
+        formatEnhancementMetricsSummary(methodStr, elapsedMs,
+                                        request.appliedParamsSummary,
+                                        request.metrics, showingDiff));
+}
+
 void MainWindow::renderCachedN5Images()
 {
     if (ui->viewerN5Original) {
         if (!cachedN5OriginalPixmap_.isNull()) {
-            ui->viewerN5Original->setPixmap(cachedN5OriginalPixmap_, true /* preserveViewport */);
+            ui->viewerN5Original->setPixmap(cachedN5OriginalPixmap_, true);
         } else {
             ui->viewerN5Original->clearImage("Chưa có ảnh nhiệt");
         }
     }
     if (ui->viewerN5Enhanced) {
-        if (!cachedN5EnhancedPixmap_.isNull()) {
-            ui->viewerN5Enhanced->setPixmap(cachedN5EnhancedPixmap_, true /* preserveViewport */);
+        const bool showDiff = ui->chkShowDiffMap
+                              && ui->chkShowDiffMap->isChecked()
+                              && !cachedN5DiffPixmap_.isNull();
+        const QPixmap &pix = showDiff ? cachedN5DiffPixmap_ : cachedN5EnhancedPixmap_;
+        if (!pix.isNull()) {
+            ui->viewerN5Enhanced->setPixmap(pix, true);
         } else {
             ui->viewerN5Enhanced->clearImage("Bấm 'Áp dụng xử lý' để chạy N5 hoặc BYPASS");
         }

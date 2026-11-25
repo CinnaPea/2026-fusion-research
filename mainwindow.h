@@ -142,6 +142,19 @@ private:
     // N5 enhancement helpers
     void setN5UiState(N5UiState state, qint64 elapsedMs = 0, const QString &detailMsg = QString(), const QString &methodOverride = QString());
     void renderCachedN5Images();
+    void clearN5EnhancedCache();
+    void updateEnhancedResultDisplay(const EnhanceJobRequest &request,
+                                     const QImage &resultImage,
+                                     qint64 elapsedMs,
+                                     const QString &methodStr);
+    [[nodiscard]]
+    static QString formatEnhancementMetricsSummary(const QString &methodStr,
+                                                   qint64 elapsedMs,
+                                                   const QString &appliedParams,
+                                                   const ThermalEnhancementMetrics &metrics,
+                                                   bool showingDiffMap);
+    [[nodiscard]]
+    static QString formatEnhancementLogMetrics(const ThermalEnhancementMetrics &metrics);
     void appendLog(const QString &message);
     void updateBatchButtonText();
 
@@ -181,6 +194,11 @@ private:
     int batchTotalCount_ = 0;
     QPixmap cachedN5OriginalPixmap_;
     QPixmap cachedN5EnhancedPixmap_;
+    QPixmap cachedN5DiffPixmap_;
+    ThermalEnhancementMetrics lastThermalMetrics_;
+    QString lastAppliedParams_;
+    qint64 lastElapsedMs_ = -1;
+    QString lastMethodStr_;
     QString activeN5PairId_;
 
     // Threading

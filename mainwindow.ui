@@ -633,7 +633,7 @@
                   <property name="minimumSize">
                    <size>
                     <width>0</width>
-                    <height>92</height>
+                    <height>104</height>
                    </size>
                   </property>
                   <property name="text">
@@ -695,7 +695,7 @@
                   <property name="minimumSize">
                    <size>
                     <width>0</width>
-                    <height>92</height>
+                    <height>104</height>
                    </size>
                   </property>
                   <property name="text">
@@ -841,6 +841,19 @@
                      </property>
                      <property name="checked">
                       <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QCheckBox" name="chkShowDiffMap">
+                     <property name="enabled">
+                      <bool>false</bool>
+                     </property>
+                     <property name="toolTip">
+                      <string>Chuyển vùng hiển thị kết quả sang bản đồ chênh lệch tuyệt đối |Sau − Trước| (Inferno) để nhìn rõ vùng được N5 tăng cường.</string>
+                     </property>
+                     <property name="text">
+                      <string>Xem bản đồ khác biệt (|Sau − Trước|)</string>
                      </property>
                     </widget>
                    </item>
