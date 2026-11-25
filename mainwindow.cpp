@@ -3254,8 +3254,11 @@ QString MainWindow::formatOriginalMetricsSummary(const QString &baseInfo,
         return baseInfo;
     }
     const QString statsText = QString(
-        "Mean: %1 | Std: %2 | Dải: %3..%4\n"
-        "IE: %5 bit/px | AG: %6 | PIQE: %7")
+        "Mean: %1 | Std: %2\n"
+        "Dải mức xám: %3..%4\n"
+        "IE (Entropy): %5 bit/px\n"
+        "AG (Avg Gradient): %6\n"
+        "PIQE: %7")
         .arg(stats.mean, 0, 'f', 1)
         .arg(stats.stdDev, 0, 'f', 1)
         .arg(stats.minVal)
@@ -3299,9 +3302,12 @@ QString MainWindow::formatEnhancementMetricsSummary(
     return QString(
         "Thời gian: %1 ms%2\n"
         "Params: %3\n"
-        "Mean: %4 (%5) | Std: %6 (%7) | Dải: %8..%9\n"
-        "IE: %10 (%11) bit/px | AG: %12 (%13) | PIQE: %14 (%15)\n"
-        "PSNR: %16 | MAE: %17 | MaxΔ: %18 | Thay đổi: %19%")
+        "Mean: %4 (%5) | Std: %6 (%7)\n"
+        "Dải mức xám: %8..%9 | Thay đổi: %19%\n"
+        "IE (Entropy): %10 (%11) bit/px\n"
+        "AG (Avg Gradient): %12 (%13)\n"
+        "PIQE: %14 (%15)\n"
+        "PSNR: %16 | MAE: %17 | MaxΔ: %18")
         .arg(elapsedMs)
         .arg(headerSuffix, appliedParams)
         .arg(m.outputMean, 0, 'f', 1)
