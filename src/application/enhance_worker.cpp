@@ -66,11 +66,51 @@ QImage buildDiffHeatmap(const cv::Mat &absDiff, int maxAbsDiff)
                   QImage::Format_RGB888).copy();
 }
 
+QImage matToQImageCopy(const cv::Mat &raw)
+{
+    if (raw.empty()) {
+        return QImage();
+    }
+    if (raw.type() == CV_8UC1) {
+        return QImage(
+            raw.data,
+            raw.cols,
+            raw.rows,
+            static_cast<int>(raw.step),
+            QImage::Format_Grayscale8
+        ).copy();
+    }
+    if (raw.type() == CV_8UC3) {
+        cv::Mat rgb;
+        cv::cvtColor(raw, rgb, cv::COLOR_BGR2RGB);
+        return QImage(
+            rgb.data,
+            rgb.cols,
+            rgb.rows,
+            static_cast<int>(rgb.step),
+            QImage::Format_RGB888
+        ).copy();
+    }
+    if (raw.type() == CV_8UC4) {
+        cv::Mat rgba;
+        cv::cvtColor(raw, rgba, cv::COLOR_BGRA2RGBA);
+        return QImage(
+            rgba.data,
+            rgba.cols,
+            rgba.rows,
+            static_cast<int>(rgba.step),
+            QImage::Format_RGBA8888
+        ).copy();
+    }
+    return QImage();
+}
+
 void populateThermalMetricsAndDiff(
     const cv::Mat &prepared,
     const cv::Mat &output,
     qart::application::ThermalProcessingMode mode,
-    EnhanceJobRequest &target)
+    EnhanceJobRequest &target,
+    bool includeDiffHeatmap)
 {
     if (mode == qart::application::ThermalProcessingMode::N5PostHalf) {
         target.appliedParamsSummary = QString("GF Base 7×7 | CLAHE(2.0, 8×8) | Post-Half 3×3 (×0.5)");
@@ -87,9 +127,6 @@ void populateThermalMetricsAndDiff(
         target.diffHeatmap = QImage();
         return;
     }
-
-    cv::Mat absDiff;
-    cv::absdiff(output, prepared, absDiff);
 
     ThermalEnhancementMetrics m;
     m.valid = true;
@@ -113,7 +150,62 @@ void populateThermalMetricsAndDiff(
     m.changedPixelPercent = pairMetrics.changedPixelPercent;
 
     target.metrics = m;
-    target.diffHeatmap = buildDiffHeatmap(absDiff, pairMetrics.maxAbsDiff);
+    if (includeDiffHeatmap) {
+        cv::Mat absDiff;
+        cv::absdiff(output, prepared, absDiff);
+        target.diffHeatmap = buildDiffHeatmap(absDiff, pairMetrics.maxAbsDiff);
+    } else {
+        target.diffHeatmap = QImage();
+    }
+}
+
+ThermalExecutionOutput executeThermalMat(
+    qart::application::ApplicationController &workerController,
+    const cv::Mat &raw,
+    qart::application::ThermalProcessingMode mode,
+    EnhanceJobRequest *requestTarget = nullptr,
+    bool captureSourcePreview = false,
+    bool includeVisualOutputs = true)
+{
+    if (raw.empty()) {
+        return {false, QImage(), QString("Ảnh nhiệt đầu vào rỗng.")};
+    }
+
+    if (requestTarget != nullptr) {
+        requestTarget->sourceChannels = raw.channels();
+        if (captureSourcePreview && includeVisualOutputs) {
+            requestTarget->sourcePreview = matToQImageCopy(raw);
+        } else {
+            requestTarget->sourcePreview = QImage();
+        }
+    }
+
+    const cv::Mat prepared = qart::core::enhancement::prepareThermalUint8Plane(raw);
+    const auto result = workerController.processThermal(prepared, mode);
+    const cv::Mat &outMat = result.outputImage;
+
+    if (outMat.empty() || outMat.type() != CV_8UC1) {
+        return {
+            false,
+            QImage(),
+            "Kết quả thuật toán rỗng hoặc sai định dạng pixel CV_8UC1."
+        };
+    }
+
+    if (requestTarget != nullptr) {
+        populateThermalMetricsAndDiff(prepared, outMat, mode, *requestTarget, includeVisualOutputs);
+    }
+
+    if (!includeVisualOutputs) {
+        return {true, QImage(), QString()};
+    }
+
+    QImage qImg(outMat.data,
+                outMat.cols,
+                outMat.rows,
+                static_cast<int>(outMat.step),
+                QImage::Format_Grayscale8);
+    return {true, qImg.copy(), QString()};
 }
 
 ThermalExecutionOutput executeThermalRequest(
@@ -121,7 +213,8 @@ ThermalExecutionOutput executeThermalRequest(
     const std::filesystem::path &thermalPath,
     qart::application::ThermalProcessingMode mode,
     EnhanceJobRequest *requestTarget = nullptr,
-    bool captureSourcePreview = false)
+    bool captureSourcePreview = false,
+    bool includeVisualOutputs = true)
 {
     std::error_code fsErr;
     const bool exists = std::filesystem::exists(thermalPath, fsErr);
@@ -163,69 +256,14 @@ ThermalExecutionOutput executeThermalRequest(
         };
     }
 
-    // Use the already-decoded source. Never create QPixmap in this thread.
-    if (requestTarget != nullptr && captureSourcePreview) {
-        requestTarget->sourcePreview = QImage();
-        requestTarget->sourceChannels = raw.channels();
-
-        if (raw.type() == CV_8UC1) {
-            requestTarget->sourcePreview =
-                QImage(
-                    raw.data,
-                    raw.cols,
-                    raw.rows,
-                    static_cast<int>(raw.step),
-                    QImage::Format_Grayscale8
-                ).copy();
-        } else if (raw.type() == CV_8UC3) {
-            cv::Mat rgb;
-            cv::cvtColor(raw, rgb, cv::COLOR_BGR2RGB);
-
-            requestTarget->sourcePreview =
-                QImage(
-                    rgb.data,
-                    rgb.cols,
-                    rgb.rows,
-                    rgb.step,
-                    QImage::Format_RGB888
-                ).copy();
-        } else if (raw.type() == CV_8UC4) {
-            cv::Mat rgba;
-            cv::cvtColor(raw, rgba, cv::COLOR_BGRA2RGBA);
-
-            requestTarget->sourcePreview =
-                QImage(
-                    rgba.data,
-                    rgba.cols,
-                    rgba.rows,
-                    rgba.step,
-                    QImage::Format_RGBA8888
-                ).copy();
-        }
-    }
-
-    const auto result = workerController.processThermal(raw, mode);
-    const cv::Mat &outMat = result.outputImage;
-
-    if (outMat.empty() || outMat.type() != CV_8UC1) {
-        return {
-            false,
-            QImage(),
-            "Kết quả thuật toán rỗng hoặc sai định dạng pixel CV_8UC1."
-        };
-    }
-
-    if (requestTarget != nullptr) {
-        const cv::Mat prepared = qart::core::enhancement::prepareThermalUint8Plane(raw);
-        populateThermalMetricsAndDiff(prepared, outMat, mode, *requestTarget);
-    }
-
-    QImage qImg(outMat.data,
-                outMat.cols,
-                outMat.rows,
-                static_cast<int>(outMat.step),
-                QImage::Format_Grayscale8);
-    return {true, qImg.copy(), QString()};
+    return executeThermalMat(
+        workerController,
+        raw,
+        mode,
+        requestTarget,
+        captureSourcePreview,
+        includeVisualOutputs
+    );
 }
 
 } // namespace
@@ -321,6 +359,18 @@ BatchEnhanceWorkerThread::~BatchEnhanceWorkerThread()
     }
 }
 
+void BatchEnhanceWorkerThread::setUiBackpressure(
+    std::shared_ptr<std::atomic<int>> pendingUiSteps,
+    bool throttlePreviewImages,
+    int previewIntervalMs,
+    int maxPendingUiSteps)
+{
+    pendingUiSteps_ = std::move(pendingUiSteps);
+    throttlePreviewImages_ = throttlePreviewImages;
+    previewIntervalMs_ = std::max(0, previewIntervalMs);
+    maxPendingUiSteps_ = std::max(1, maxPendingUiSteps);
+}
+
 void BatchEnhanceWorkerThread::requestCancel()
 {
     cancelRequested_.store(true);
@@ -334,14 +384,54 @@ void BatchEnhanceWorkerThread::run()
     int cancelledCount = 0;
     const int total = static_cast<int>(requests_.size());
 
+    auto emitStep = [&](int idx,
+                        EnhanceJobRequest &jobRef,
+                        const QImage &img,
+                        qint64 elapsed,
+                        bool ok,
+                        const QString &errMsg) {
+        if (pendingUiSteps_) {
+            pendingUiSteps_->fetch_add(1, std::memory_order_acq_rel);
+        }
+        emit jobStepFinished(sessionId_,
+                             batchId_,
+                             idx,
+                             total,
+                             jobRef,
+                             img,
+                             elapsed,
+                             ok,
+                             errMsg,
+                             successCount,
+                             errorCount,
+                             skippedCount,
+                             cancelledCount);
+    };
+
     try {
         // Dedicated controller instance isolated from the UI thread's controller.
         qart::application::ApplicationController workerController;
+        QElapsedTimer previewTimer;
+        bool hasEmittedPreview = false;
 
         for (int i = 0; i < total; ++i) {
             if (cancelRequested_.load() || isInterruptionRequested()) {
                 cancelledCount = total - i;
                 break;
+            }
+
+            // Bounded non-blocking backpressure: keep GUI responsive without ever risking deadlock on cancel.
+            if (pendingUiSteps_) {
+                while (pendingUiSteps_->load(std::memory_order_acquire) >= maxPendingUiSteps_) {
+                    if (cancelRequested_.load() || isInterruptionRequested()) {
+                        break;
+                    }
+                    QThread::msleep(2);
+                }
+                if (cancelRequested_.load() || isInterruptionRequested()) {
+                    cancelledCount = total - i;
+                    break;
+                }
             }
 
             auto &job = requests_[i];
@@ -383,83 +473,77 @@ void BatchEnhanceWorkerThread::run()
 
                 if (job.isSkipped) {
                     skippedCount++;
-                    emit jobStepFinished(sessionId_,
-                                         batchId_,
-                                         i,
-                                         total,
-                                         job,
-                                         QImage(),
-                                         0,
-                                         false,
-                                         job.skipReason.isEmpty() ? "Bỏ qua (không đạt điều kiện kiểm định)" : job.skipReason,
-                                         successCount,
-                                         errorCount,
-                                         skippedCount,
-                                         cancelledCount);
+                    emitStep(
+                        i,
+                        job,
+                        QImage(),
+                        0,
+                        false,
+                        job.skipReason.isEmpty() ? "Bỏ qua (không đạt điều kiện kiểm định)" : job.skipReason
+                    );
                     continue;
                 }
+
+                const int pendingNow = pendingUiSteps_
+                    ? pendingUiSteps_->load(std::memory_order_acquire)
+                    : 0;
+                const bool includeVisualOutputs = !throttlePreviewImages_
+                    || (i == 0)
+                    || (i == total - 1)
+                    || !hasEmittedPreview
+                    || (previewTimer.elapsed() >= previewIntervalMs_ && pendingNow <= 1);
 
                 const auto execResult = executeThermalRequest(
                     workerController,
                     job.thermalFullPath,
                     job.mode,
                     &job,
-                    true
+                    includeVisualOutputs,
+                    includeVisualOutputs
                 );
                 const qint64 elapsedMs = timer.elapsed();
 
                 if (execResult.success) {
                     successCount++;
+                    if (includeVisualOutputs) {
+                        hasEmittedPreview = true;
+                        previewTimer.restart();
+                    }
                 } else {
                     errorCount++;
                 }
 
-                emit jobStepFinished(sessionId_,
-                                     batchId_,
-                                     i,
-                                     total,
-                                     job,
-                                     execResult.image,
-                                     elapsedMs,
-                                     execResult.success,
-                                     execResult.errorMessage,
-                                     successCount,
-                                     errorCount,
-                                     skippedCount,
-                                     cancelledCount);
+                emitStep(
+                    i,
+                    job,
+                    execResult.image,
+                    elapsedMs,
+                    execResult.success,
+                    execResult.errorMessage
+                );
                 // Release large transient images in worker vector so long batches keep flat RAM.
                 job.sourcePreview = QImage();
                 job.diffHeatmap = QImage();
             } catch (const std::exception &ex) {
                 errorCount++;
-                emit jobStepFinished(sessionId_,
-                                     batchId_,
-                                     i,
-                                     total,
-                                     job,
-                                     QImage(),
-                                     timer.elapsed(),
-                                     false,
-                                     QString("Lỗi xử lý: %1").arg(ex.what()),
-                                     successCount,
-                                     errorCount,
-                                     skippedCount,
-                                     cancelledCount);
+                emitStep(
+                    i,
+                    job,
+                    QImage(),
+                    timer.elapsed(),
+                    false,
+                    QString("Lỗi xử lý: %1").arg(ex.what())
+                );
             } catch (...) {
                 errorCount++;
-                emit jobStepFinished(sessionId_,
-                                     batchId_,
-                                     i,
-                                     total,
-                                     job,
-                                     QImage(),
-                                     timer.elapsed(),
-                                     false,
-                                     "Lỗi không xác định khi xử lý mục hàng loạt.",
-                                     successCount,
-                                     errorCount,
-                                     skippedCount,
-                                     cancelledCount);
+                emitStep(
+                    i,
+                    job,
+                    QImage(),
+                    timer.elapsed(),
+                    false,
+                    "Lỗi không xác định khi xử lý mục hàng loạt."
+                );
             }
         }
     } catch (...) {
@@ -545,30 +629,48 @@ void PreviewWorkerThread::run()
 
         if (isInterruptionRequested()) return;
 
-        // 3. Decode thermal image off GUI thread
+        // 3. Decode thermal image once off GUI thread
         const auto thrPath = request_.datasetRoot / request_.pair->thermalRelativePath();
         if (std::filesystem::exists(thrPath, ec) && std::filesystem::is_regular_file(thrPath, ec)) {
             result.thrFileExists = true;
-            QImage thrImg(QString::fromStdString(thrPath.string()));
-            if (!thrImg.isNull()) {
-                result.thrDecodeSuccess = true;
-                result.thermalImage = std::move(thrImg);
-            }
 
-            // Inspect channels, dimensions, and baseline thermal stats off GUI thread
             int inspectW = 0;
             int inspectH = 0;
+            cv::Mat inspectMat;
             try {
-                const cv::Mat inspectMat = cv::imread(thrPath.string(), cv::IMREAD_UNCHANGED);
+                inspectMat = cv::imread(thrPath.string(), cv::IMREAD_UNCHANGED);
                 if (!inspectMat.empty()) {
                     result.irChannels = inspectMat.channels();
                     inspectW = inspectMat.cols;
                     inspectH = inspectMat.rows;
+
+                    QImage thrImg = matToQImageCopy(inspectMat);
+                    if (thrImg.isNull()) {
+                        thrImg = QImage(QString::fromStdString(thrPath.string()));
+                    }
+                    if (!thrImg.isNull()) {
+                        result.thrDecodeSuccess = true;
+                        result.thermalImage = std::move(thrImg);
+                    }
+
                     const cv::Mat prepared = qart::core::enhancement::prepareThermalUint8Plane(inspectMat);
                     result.sourceStats = computePlaneStats(prepared);
+                } else {
+                    QImage thrImg(QString::fromStdString(thrPath.string()));
+                    if (!thrImg.isNull()) {
+                        result.thrDecodeSuccess = true;
+                        result.thermalImage = std::move(thrImg);
+                    }
                 }
             } catch (...) {
-                // Keep inspected channel count if stats preparation fails (e.g. non-uint8 preview)
+                // Fallback QImage preview if stats preparation fails (e.g. non-uint8 preview)
+                if (!result.thrDecodeSuccess) {
+                    QImage thrImg(QString::fromStdString(thrPath.string()));
+                    if (!thrImg.isNull()) {
+                        result.thrDecodeSuccess = true;
+                        result.thermalImage = std::move(thrImg);
+                    }
+                }
             }
 
             const int dispW = result.thrDecodeSuccess ? result.thermalImage.width() : inspectW;
@@ -599,13 +701,23 @@ void PreviewWorkerThread::run()
                 qart::application::ApplicationController workerController;
                 EnhanceJobRequest tempReq;
                 tempReq.mode = *request_.rehydrateMode;
-                const auto execResult = executeThermalRequest(
-                    workerController,
-                    thrPath,
-                    *request_.rehydrateMode,
-                    &tempReq,
-                    false
-                );
+                const auto execResult = !inspectMat.empty()
+                    ? executeThermalMat(
+                        workerController,
+                        inspectMat,
+                        *request_.rehydrateMode,
+                        &tempReq,
+                        false,
+                        true
+                    )
+                    : executeThermalRequest(
+                        workerController,
+                        thrPath,
+                        *request_.rehydrateMode,
+                        &tempReq,
+                        false,
+                        true
+                    );
                 if (execResult.success && !execResult.image.isNull()) {
                     result.rehydratedEnhancement = true;
                     result.rehydratedMode = *request_.rehydrateMode;
@@ -628,4 +740,76 @@ void PreviewWorkerThread::run()
         result.errorMessage = "Lỗi không xác định khi giải mã ảnh preview.";
         emit previewFinished(result);
     }
+}
+
+// ---------------------------------------------------------------------------
+// FullValidationWorkerThread
+// ---------------------------------------------------------------------------
+
+FullValidationWorkerThread::FullValidationWorkerThread(
+    quint64 sessionId,
+    std::filesystem::path datasetRoot,
+    std::vector<qart::core::domain::datasets::DatasetPair> pairs,
+    QObject *parent)
+    : QThread(parent)
+    , sessionId_(sessionId)
+    , datasetRoot_(std::move(datasetRoot))
+    , pairs_(std::move(pairs))
+{
+    qRegisterMetaType<FullValidationJobResult>("FullValidationJobResult");
+}
+
+FullValidationWorkerThread::~FullValidationWorkerThread()
+{
+    requestCancel();
+    requestInterruption();
+    if (isRunning()) {
+        wait();
+    }
+}
+
+void FullValidationWorkerThread::requestCancel()
+{
+    cancelRequested_.store(true);
+}
+
+void FullValidationWorkerThread::run()
+{
+    FullValidationJobResult out;
+    out.sessionId = sessionId_;
+
+    const int total = static_cast<int>(pairs_.size());
+    out.results.reserve(pairs_.size());
+
+    QElapsedTimer progressTimer;
+    progressTimer.start();
+
+    try {
+        for (int i = 0; i < total; ++i) {
+            if (cancelRequested_.load() || isInterruptionRequested()) {
+                out.cancelled = true;
+                break;
+            }
+
+            out.results.push_back(
+                qart::application::ApplicationController::validatePairAtRoot(
+                    datasetRoot_,
+                    pairs_[static_cast<std::size_t>(i)]
+                )
+            );
+
+            const int completed = i + 1;
+            if (completed == total
+                || (completed % 25 == 0 && progressTimer.elapsed() >= 90)) {
+                emit validationProgress(sessionId_, completed, total);
+                progressTimer.restart();
+            }
+        }
+    } catch (const std::exception &ex) {
+        out.errorMessage = QString::fromUtf8(ex.what());
+    } catch (...) {
+        out.errorMessage = QStringLiteral("Lỗi không xác định khi kiểm định toàn bộ cặp ảnh.");
+    }
+
+    emit validationFinished(out);
 }

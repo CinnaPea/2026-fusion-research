@@ -61,6 +61,38 @@ double computeAverageGradient(const cv::Mat& gray8)
     return denom > 0.0 ? (sum / denom) : 0.0;
 }
 
+struct RegionStats {
+    double mean = 0.0;
+    double stdDev = 0.0;
+    double variance = 0.0;
+};
+
+RegionStats regionStats2D(const double* topLeft, int stride, int rows, int cols)
+{
+    const int n = rows * cols;
+    if (n <= 0) {
+        return {};
+    }
+    double sum = 0.0;
+    for (int r = 0; r < rows; ++r) {
+        const double* rowPtr = topLeft + r * stride;
+        for (int c = 0; c < cols; ++c) {
+            sum += rowPtr[c];
+        }
+    }
+    const double mean = sum / static_cast<double>(n);
+    double sqSum = 0.0;
+    for (int r = 0; r < rows; ++r) {
+        const double* rowPtr = topLeft + r * stride;
+        for (int c = 0; c < cols; ++c) {
+            const double d = rowPtr[c] - mean;
+            sqSum += d * d;
+        }
+    }
+    const double variance = std::max(0.0, sqSum / static_cast<double>(n));
+    return {mean, std::sqrt(variance), variance};
+}
+
 double variance1D(const double* data, int stride, int len)
 {
     if (len <= 0) {
@@ -133,27 +165,18 @@ double computePiqe(const cv::Mat& gray8)
     double distortionSum = 0.0;
 
     for (int br = 0; br < blockRows; ++br) {
+        const double* rowBlockBase = mscn.ptr<double>(br * kBlockSize);
         for (int bc = 0; bc < blockCols; ++bc) {
-            const cv::Rect blockRect(
-                bc * kBlockSize,
-                br * kBlockSize,
-                kBlockSize,
-                kBlockSize
-            );
-            const cv::Mat block = mscn(blockRect);
-
-            cv::Scalar blockMeanS;
-            cv::Scalar blockStdS;
-            cv::meanStdDev(block, blockMeanS, blockStdS);
-            const double blockStd = blockStdS[0];
-            const double blockVar = blockStd * blockStd;
+            const double* blockPtr = rowBlockBase + bc * kBlockSize;
+            const RegionStats blkStats =
+                regionStats2D(blockPtr, mscnStep, kBlockSize, kBlockSize);
+            const double blockStd = blkStats.stdDev;
+            const double blockVar = blkStats.variance;
 
             if (blockVar <= kActivityThreshold) {
                 continue;
             }
             activeBlocks++;
-
-            const double* blockPtr = block.ptr<double>(0);
 
             // 44 boundary segments (11 per edge, each of 6 consecutive MSCN samples)
             int lowVarSegCount = 0;
@@ -184,13 +207,10 @@ double computePiqe(const cv::Mat& gray8)
                 (blockStd > 1e-12) ? (0.5 * (stdCol7 + stdCol8) / blockStd) : 0.0;
 
             // Interior 10x10 region variance ratio for uncorrelated noise check
-            const cv::Mat interior = block(cv::Rect(3, 3, 10, 10));
-            cv::Scalar intMeanS;
-            cv::Scalar intStdS;
-            cv::meanStdDev(interior, intMeanS, intStdS);
-            const double interiorVar = intStdS[0] * intStdS[0];
+            const RegionStats interiorStats =
+                regionStats2D(blockPtr + 3 * mscnStep + 3, mscnStep, 10, 10);
             const double interiorVarRatio =
-                (blockVar > 1e-12) ? (interiorVar / blockVar) : 0.0;
+                (blockVar > 1e-12) ? (interiorStats.variance / blockVar) : 0.0;
 
             double dStruct = 0.0;
             if (blockVar < kStructVarThreshold
@@ -267,8 +287,17 @@ PairQualityMetrics computePairQualityMetrics(
     }
 
     metrics.input = computePlaneQualityStats(inputGray8);
-    metrics.output = computePlaneQualityStats(outputGray8);
-    if (!metrics.input.valid || !metrics.output.valid) {
+    if (!metrics.input.valid) {
+        return metrics;
+    }
+
+    if (inputGray8.data == outputGray8.data) {
+        metrics.output = metrics.input;
+        metrics.maxAbsDiff = 0;
+        metrics.mae = 0.0;
+        metrics.changedPixelPercent = 0.0;
+        metrics.psnr = std::numeric_limits<double>::infinity();
+        metrics.valid = true;
         return metrics;
     }
 
@@ -278,6 +307,21 @@ PairQualityMetrics computePairQualityMetrics(
     double maxDiffD = 0.0;
     cv::minMaxLoc(absDiff, nullptr, &maxDiffD);
     metrics.maxAbsDiff = static_cast<int>(std::round(maxDiffD));
+
+    if (metrics.maxAbsDiff == 0) {
+        metrics.output = metrics.input;
+        metrics.mae = 0.0;
+        metrics.changedPixelPercent = 0.0;
+        metrics.psnr = std::numeric_limits<double>::infinity();
+        metrics.valid = true;
+        return metrics;
+    }
+
+    metrics.output = computePlaneQualityStats(outputGray8);
+    if (!metrics.output.valid) {
+        return metrics;
+    }
+
     metrics.mae = cv::mean(absDiff)[0];
 
     const double totalPx = static_cast<double>(absDiff.total());

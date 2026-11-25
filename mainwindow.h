@@ -7,7 +7,10 @@
 #include <QString>
 #include <QMenu>
 #include <QPointer>
+#include <QElapsedTimer>
+#include <atomic>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -147,6 +150,8 @@ private slots:
                                int cancelledCount);
 
     void onPreviewFinished(const PreviewJobResult &result);
+    void onFullValidationProgress(quint64 sessionId, int completed, int total);
+    void onFullValidationFinished(const FullValidationJobResult &result);
 
 private:
     void setupUiControls();
@@ -197,6 +202,7 @@ private:
     void retireSingleWorker();
     void retireBatchWorker();
     void retirePreviewWorker();
+    void retireValidationWorker();
     void pruneFinishedRetiredWorkers();
     void stopAllWorkersAndWait();
     void invalidateActiveSessionAndWorkers(bool clearOriginalViewer = true);
@@ -230,6 +236,7 @@ private:
     QPixmap cachedN5OriginalPixmap_;
     QPixmap cachedN5EnhancedPixmap_;
     QPixmap cachedN5DiffPixmap_;
+    QImage cachedN5DiffImage_;
     QString activeN5OriginalBaseInfo_;
     ThermalPlaneStats activeN5OriginalStats_;
     ThermalEnhancementMetrics lastThermalMetrics_;
@@ -242,7 +249,11 @@ private:
     QPointer<SingleEnhanceWorkerThread> singleWorker_;
     QPointer<BatchEnhanceWorkerThread> batchWorker_;
     QPointer<PreviewWorkerThread> previewWorker_;
+    QPointer<FullValidationWorkerThread> validationWorker_;
     std::vector<QPointer<QThread>> pendingRetiredWorkers_;
+    bool isValidatingAll_ = false;
+    std::shared_ptr<std::atomic<int>> batchPendingUiSteps_;
+    QElapsedTimer batchStatusTimer_;
     quint64 currentSessionId_ = 0;
     quint64 currentRequestId_ = 0;
     quint64 currentBatchId_ = 0;

@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <vector>
 #include <atomic>
+#include <memory>
 #include <optional>
 #include "application/application_controller.h"
 #include "core/domain/datasets/dataset_pair.h"
@@ -163,6 +164,11 @@ public:
                                       QObject *parent = nullptr);
     ~BatchEnhanceWorkerThread() override;
 
+    void setUiBackpressure(std::shared_ptr<std::atomic<int>> pendingUiSteps,
+                           bool throttlePreviewImages,
+                           int previewIntervalMs = 150,
+                           int maxPendingUiSteps = 4);
+
     void requestCancel();
     [[nodiscard]] bool isCancelRequested() const { return cancelRequested_.load(); }
     [[nodiscard]] quint64 sessionId() const noexcept { return sessionId_; }
@@ -198,6 +204,48 @@ private:
     quint64 sessionId_ = 0;
     quint64 batchId_ = 0;
     std::vector<EnhanceJobRequest> requests_;
+    std::atomic<bool> cancelRequested_{false};
+    std::shared_ptr<std::atomic<int>> pendingUiSteps_;
+    bool throttlePreviewImages_ = false;
+    int previewIntervalMs_ = 150;
+    int maxPendingUiSteps_ = 4;
+};
+
+struct FullValidationJobResult {
+    quint64 sessionId = 0;
+    std::vector<qart::core::domain::validation::PairValidationResult> results;
+    bool cancelled = false;
+    QString errorMessage;
+};
+Q_DECLARE_METATYPE(FullValidationJobResult)
+
+// Worker thread for full-dataset validation off the GUI thread
+class FullValidationWorkerThread : public QThread
+{
+    Q_OBJECT
+
+public:
+    explicit FullValidationWorkerThread(
+        quint64 sessionId,
+        std::filesystem::path datasetRoot,
+        std::vector<qart::core::domain::datasets::DatasetPair> pairs,
+        QObject *parent = nullptr);
+    ~FullValidationWorkerThread() override;
+
+    void requestCancel();
+    [[nodiscard]] quint64 sessionId() const noexcept { return sessionId_; }
+
+signals:
+    void validationProgress(quint64 sessionId, int completed, int total);
+    void validationFinished(const FullValidationJobResult &result);
+
+protected:
+    void run() override;
+
+private:
+    quint64 sessionId_ = 0;
+    std::filesystem::path datasetRoot_;
+    std::vector<qart::core::domain::datasets::DatasetPair> pairs_;
     std::atomic<bool> cancelRequested_{false};
 };
 

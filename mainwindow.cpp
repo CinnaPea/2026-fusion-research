@@ -365,6 +365,25 @@ void MainWindow::retirePreviewWorker()
     previewWorker_.clear();
 }
 
+void MainWindow::retireValidationWorker()
+{
+    pruneFinishedRetiredWorkers();
+    if (!validationWorker_) {
+        validationWorker_.clear();
+        return;
+    }
+
+    disconnect(validationWorker_.data(), nullptr, this, nullptr);
+    validationWorker_->requestCancel();
+    validationWorker_->requestInterruption();
+    if (validationWorker_->isRunning()) {
+        pendingRetiredWorkers_.emplace_back(validationWorker_.data());
+    } else {
+        validationWorker_->deleteLater();
+    }
+    validationWorker_.clear();
+}
+
 void MainWindow::stopAllWorkersAndWait()
 {
     if (batchWorker_) {
@@ -380,10 +399,18 @@ void MainWindow::stopAllWorkersAndWait()
         disconnect(previewWorker_.data(), nullptr, this, nullptr);
         previewWorker_->requestInterruption();
     }
+    if (validationWorker_) {
+        disconnect(validationWorker_.data(), nullptr, this, nullptr);
+        validationWorker_->requestCancel();
+        validationWorker_->requestInterruption();
+    }
     for (const auto &retired : pendingRetiredWorkers_) {
         if (retired) {
             if (auto *batch = qobject_cast<BatchEnhanceWorkerThread *>(retired.data())) {
                 batch->requestCancel();
+            }
+            if (auto *val = qobject_cast<FullValidationWorkerThread *>(retired.data())) {
+                val->requestCancel();
             }
             retired->requestInterruption();
         }
@@ -411,6 +438,13 @@ void MainWindow::stopAllWorkersAndWait()
         delete previewWorker_.data();
         previewWorker_.clear();
     }
+    if (validationWorker_) {
+        if (validationWorker_->isRunning()) {
+            validationWorker_->wait();
+        }
+        delete validationWorker_.data();
+        validationWorker_.clear();
+    }
     for (auto &retired : pendingRetiredWorkers_) {
         if (retired) {
             if (retired->isRunning()) {
@@ -433,10 +467,19 @@ void MainWindow::invalidateActiveSessionAndWorkers(bool clearOriginalViewer)
     retireBatchWorker();
     retireSingleWorker();
     retirePreviewWorker();
+    retireValidationWorker();
+    batchPendingUiSteps_.reset();
 
     isBatchEnhancing_ = false;
     isBatchCancelling_ = false;
     batchTotalCount_ = 0;
+    isValidatingAll_ = false;
+    if (ui->btnFullValidation) {
+        ui->btnFullValidation->setText("Kiểm tra toàn bộ");
+    }
+    if (ui->prgLoading) {
+        ui->prgLoading->setVisible(false);
+    }
 
     activePreviewIndex_ = -1;
     cachedPreviewIndex_ = -1;
@@ -1057,11 +1100,13 @@ void MainWindow::applyFiltersAndModes()
         }
 
         // 3. Populate List Widget
+        ui->lstImagePairs->setUpdatesEnabled(false);
         for (std::size_t i = 0; i < displayedItems_.size(); ++i) {
             auto *listItem = new QListWidgetItem(ui->lstImagePairs);
             listItem->setData(Qt::UserRole, static_cast<int>(i));
             updateListItemDisplay(listItem, displayedItems_[i]);
         }
+        ui->lstImagePairs->setUpdatesEnabled(true);
 
         QString modeName = "Duyệt toàn bộ";
         if (viewMode == "sample") modeName = "Lấy mẫu tự động";
@@ -1868,6 +1913,16 @@ void MainWindow::onSelectSingleImageClicked()
 void MainWindow::onFullValidationClicked()
 {
     try {
+        if (isValidatingAll_) {
+            if (validationWorker_) {
+                validationWorker_->requestCancel();
+                validationWorker_->requestInterruption();
+                ui->lblSystemStatus->setText("Đang dừng kiểm định toàn bộ...");
+                appendLog("Full dataset validation cancellation requested by user.");
+            }
+            return;
+        }
+
         if (appController_.discoveredPairs().empty()) {
             QMessageBox::information(
                 this,
@@ -1877,48 +1932,42 @@ void MainWindow::onFullValidationClicked()
             return;
         }
 
-        ui->prgLoading->setVisible(true);
-        ui->prgLoading->setValue(0);
-
-        ui->lblSystemStatus->setText(
-            "Đang thực hiện kiểm định và giải mã toàn bộ cặp ảnh..."
-        );
-
-        const std::size_t total =
-            appController_.validateAllPairs(
-                [this](
-                    const std::size_t completed,
-                    const std::size_t pairCount
-                ) {
-                    if (
-                        completed % 50 == 1
-                        || completed == pairCount
-                    ) {
-                        const int percent =
-                            static_cast<int>(
-                                completed * 100
-                                / pairCount
-                            );
-
-                        ui->prgLoading->setValue(
-                            percent
-                        );
-
-                        QCoreApplication::processEvents();
-                    }
-                }
+        if (appController_.datasetRoot().empty()) {
+            QMessageBox::warning(
+                this,
+                "Lỗi Dataset",
+                "Chưa có đường dẫn dataset root hợp lệ để kiểm tra toàn bộ."
             );
+            return;
+        }
 
-        ui->prgLoading->setVisible(false);
-
+        retireValidationWorker();
+        isValidatingAll_ = true;
+        ui->btnFullValidation->setText("Dừng kiểm tra");
+        ui->prgLoading->setRange(0, 100);
+        ui->prgLoading->setValue(0);
+        ui->prgLoading->setVisible(true);
         ui->lblSystemStatus->setText(
-            QString(
-                "Đã hoàn thành kiểm định toàn bộ %1 cặp ảnh!"
-            ).arg(total)
+            QString("Đang kiểm định toàn bộ %1 cặp ảnh trong luồng nền...")
+                .arg(appController_.discoveredPairs().size())
         );
 
-        applyFiltersAndModes();
+        validationWorker_ = new FullValidationWorkerThread(
+            currentSessionId_,
+            appController_.datasetRoot(),
+            appController_.discoveredPairs(),
+            this
+        );
+        connect(validationWorker_.data(), &FullValidationWorkerThread::validationProgress,
+                this, &MainWindow::onFullValidationProgress);
+        connect(validationWorker_.data(), &FullValidationWorkerThread::validationFinished,
+                this, &MainWindow::onFullValidationFinished);
+        connect(validationWorker_.data(), &QThread::finished,
+                validationWorker_.data(), &QObject::deleteLater);
+        validationWorker_->start();
     } catch (const std::exception &ex) {
+        isValidatingAll_ = false;
+        ui->btnFullValidation->setText("Kiểm tra toàn bộ");
         ui->prgLoading->setVisible(false);
 
         QMessageBox::critical(
@@ -1929,6 +1978,59 @@ void MainWindow::onFullValidationClicked()
             ).arg(ex.what())
         );
     }
+}
+
+void MainWindow::onFullValidationProgress(quint64 sessionId, int completed, int total)
+{
+    if (sessionId != currentSessionId_ || !isValidatingAll_) {
+        return;
+    }
+    const int percent = (total > 0) ? static_cast<int>((static_cast<qint64>(completed) * 100) / total) : 0;
+    ui->prgLoading->setValue(percent);
+    ui->lblSystemStatus->setText(
+        QString("Đang kiểm định: %1/%2 cặp ảnh (%3%)...")
+            .arg(completed)
+            .arg(total)
+            .arg(percent)
+    );
+}
+
+void MainWindow::onFullValidationFinished(const FullValidationJobResult &result)
+{
+    if (sender() == validationWorker_.data()) {
+        validationWorker_.clear();
+    }
+    if (result.sessionId != currentSessionId_) {
+        return;
+    }
+
+    isValidatingAll_ = false;
+    ui->btnFullValidation->setText("Kiểm tra toàn bộ");
+    ui->prgLoading->setVisible(false);
+
+    if (!result.errorMessage.isEmpty()) {
+        ui->lblSystemStatus->setText(QString("Lỗi kiểm định toàn bộ: %1").arg(result.errorMessage));
+        QMessageBox::critical(this, "Lỗi Kiểm Định Toàn Bộ", result.errorMessage);
+        return;
+    }
+
+    for (const auto &valResult : result.results) {
+        appController_.cacheValidationResult(valResult);
+    }
+
+    if (result.cancelled) {
+        ui->lblSystemStatus->setText(
+            QString("Đã dừng kiểm định: đã lưu %1 kết quả kiểm định.")
+                .arg(result.results.size())
+        );
+    } else {
+        ui->lblSystemStatus->setText(
+            QString("Đã hoàn thành kiểm định toàn bộ %1 cặp ảnh!")
+                .arg(result.results.size())
+        );
+    }
+
+    applyFiltersAndModes();
 }
 
 void MainWindow::onAddToQueueClicked()
@@ -2143,12 +2245,15 @@ void MainWindow::onSampleCountChanged(int value)
 void MainWindow::onSearchTextChanged(const QString &query) const {
     try {
         const QString q = query.trimmed();
+        ui->lstImagePairs->setUpdatesEnabled(false);
         for (int i = 0; i < ui->lstImagePairs->count(); ++i) {
             auto *item = ui->lstImagePairs->item(i);
             bool match = q.isEmpty() || item->text().contains(q, Qt::CaseInsensitive);
             item->setHidden(!match);
         }
+        ui->lstImagePairs->setUpdatesEnabled(true);
     } catch (const std::exception &ex) {
+        ui->lstImagePairs->setUpdatesEnabled(true);
         ui->lblSystemStatus->setText(QString("Lỗi tìm kiếm: %1").arg(ex.what()));
     }
 }
@@ -2584,16 +2689,62 @@ void MainWindow::onEnhanceAllClicked()
         appendLog(QString("Started batch processing for %1 pairs (%2).").arg(batchTotalCount_).arg(modeStr));
 
         retireBatchWorker();
+        batchPendingUiSteps_ = std::make_shared<std::atomic<int>>(0);
+        batchStatusTimer_.restart();
+        auto ackCounter = batchPendingUiSteps_;
 
         batchWorker_ = new BatchEnhanceWorkerThread(currentSessionId_, currentBatchId_, std::move(requests), this);
+        batchWorker_->setUiBackpressure(
+            batchPendingUiSteps_,
+            batchTotalCount_ > 20,
+            150,
+            4
+        );
         connect(batchWorker_.data(), &BatchEnhanceWorkerThread::jobStepFinished,
-                this, &MainWindow::onBatchStepFinished);
+                this,
+                [this, ackCounter](quint64 sessionId,
+                                   quint64 batchId,
+                                   int index,
+                                   int totalCount,
+                                   const EnhanceJobRequest &request,
+                                   const QImage &resultImage,
+                                   qint64 elapsedMs,
+                                   bool success,
+                                   const QString &errorMessage,
+                                   int successCount,
+                                   int errorCount,
+                                   int skippedCount,
+                                   int cancelledCount) {
+                    struct AckGuard {
+                        std::shared_ptr<std::atomic<int>> counter;
+                        ~AckGuard() {
+                            if (counter) {
+                                counter->fetch_sub(1, std::memory_order_acq_rel);
+                            }
+                        }
+                    } guard{ackCounter};
+
+                    onBatchStepFinished(sessionId,
+                                        batchId,
+                                        index,
+                                        totalCount,
+                                        request,
+                                        resultImage,
+                                        elapsedMs,
+                                        success,
+                                        errorMessage,
+                                        successCount,
+                                        errorCount,
+                                        skippedCount,
+                                        cancelledCount);
+                });
         connect(batchWorker_.data(), &BatchEnhanceWorkerThread::batchFinished,
                 this, &MainWindow::onBatchWorkerFinished);
         connect(batchWorker_.data(), &QThread::finished,
                 batchWorker_.data(), &QObject::deleteLater);
         batchWorker_->start();
     } catch (const std::exception &ex) {
+        batchPendingUiSteps_.reset();
         isBatchEnhancing_ = false;
         isBatchCancelling_ = false;
         batchTotalCount_ = 0;
@@ -2628,148 +2779,139 @@ void MainWindow::onBatchStepFinished(quint64 sessionId,
         return;
     }
 
-    // Highlight current row without triggering onPairSelected -> updateQualityN5Tab reset!
-    if (index >= 0 && index < ui->lstImagePairs->count()) {
-        const QSignalBlocker blocker(ui->lstImagePairs);
-        ui->lstImagePairs->setCurrentRow(index);
-        if (auto *item = ui->lstImagePairs->item(index)) {
-            ui->lstImagePairs->scrollToItem(item);
-        }
-    }
+    const QString modeStr = thermalModeDisplayName(request.mode);
+    const bool hasVisualPayload = !success || !resultImage.isNull() || !request.sourcePreview.isNull();
 
-    activeN5PairId_ = request.pairId;
-    activeThermalValid_ =
-        request.validationResult.has_value()
-        && request.validationResult->thermalDecoded();
-
-    QString sourcePath =
-        QString::fromStdString(request.thermalFullPath.string());
-
-    ui->lblN5PairInfo->setText(
-        QString("Cặp ảnh: %1").arg(request.pairId)
-    );
-
+    QListWidgetItem *rowItem = (index >= 0 && index < ui->lstImagePairs->count())
+        ? ui->lstImagePairs->item(index)
+        : nullptr;
+    PairItemEntry *matchedEntry = nullptr;
     if (index >= 0
         && index < static_cast<int>(displayedItems_.size())
-        && displayedItems_[index].pair.pairId()
-            == request.pairId.toStdString()) {
-        auto &entry = displayedItems_[index];
-
+        && displayedItems_[index].pair.pairId() == request.pairId.toStdString()) {
+        matchedEntry = &displayedItems_[index];
         if (request.validationResult.has_value()) {
-            entry.validationResult = request.validationResult;
+            matchedEntry->validationResult = request.validationResult;
             appController_.cacheValidationResult(*request.validationResult);
-            if (auto *item = ui->lstImagePairs->item(index)) {
-                updateListItemDisplay(item, entry);
-            }
+        }
+    }
+
+    if (hasVisualPayload) {
+        if (rowItem != nullptr) {
+            const QSignalBlocker blocker(ui->lstImagePairs);
+            ui->lstImagePairs->setCurrentRow(index);
+            ui->lstImagePairs->scrollToItem(rowItem);
         }
 
+        activeN5PairId_ = request.pairId;
         activeThermalValid_ =
-            entry.validationResult.has_value()
-            && entry.validationResult->thermalDecoded();
+            matchedEntry != nullptr
+                ? (matchedEntry->validationResult.has_value() && matchedEntry->validationResult->thermalDecoded())
+                : (request.validationResult.has_value() && request.validationResult->thermalDecoded());
 
-        sourcePath =
-            QString::fromStdString(entry.pair.thermalRelativePath());
+        QString sourcePath = matchedEntry != nullptr
+            ? QString::fromStdString(matchedEntry->pair.thermalRelativePath())
+            : QString::fromStdString(request.thermalFullPath.string());
 
-        ui->lblN5PairInfo->setText(
-            QString("Cặp ảnh: %1 (Stem: %2 | Partition: %3)")
-                .arg(
-                    request.pairId,
-                    QString::fromStdString(entry.pair.sourceStem()),
-                    QString::fromStdString(
-                        entry.pair.partitionId().value()
+        if (matchedEntry != nullptr) {
+            ui->lblN5PairInfo->setText(
+                QString("Cặp ảnh: %1 (Stem: %2 | Partition: %3)")
+                    .arg(
+                        request.pairId,
+                        QString::fromStdString(matchedEntry->pair.sourceStem()),
+                        QString::fromStdString(matchedEntry->pair.partitionId().value())
                     )
-                )
-        );
-    }
-
-    // Display worker-owned image data; no file loading here.
-    if (!request.sourcePreview.isNull()) {
-        cachedN5OriginalPixmap_ =
-            QPixmap::fromImage(request.sourcePreview);
-
-        ui->viewerN5Original->setPixmap(
-            cachedN5OriginalPixmap_,
-            false
-        );
-        ui->viewerN5Original->fitToView();
-
-        QString sourceInfo =
-            QString("File: %1\nẢnh gốc: %2 × %3 px | %4 kênh%5")
-                .arg(sourcePath)
-                .arg(request.sourcePreview.width())
-                .arg(request.sourcePreview.height())
-                .arg(request.sourceChannels)
-                .arg(request.sourceChannels > 1 ? QString(" (BGR → Gray8)") : QString(" (Gray8)"));
-
-        if (request.sourceChannels > 1) {
-            sourceInfo += tr("\n[Giữ nguyên biểu diễn, không tự giải mã bảng màu]");
+            );
+        } else {
+            ui->lblN5PairInfo->setText(QString("Cặp ảnh: %1").arg(request.pairId));
         }
 
-        activeN5OriginalBaseInfo_ = sourceInfo;
-        activeN5OriginalStats_ = ThermalPlaneStats{};
-        ui->lblN5OriginalInfo->setText(activeN5OriginalBaseInfo_);
-    } else {
-        cachedN5OriginalPixmap_ = QPixmap();
-        activeN5OriginalBaseInfo_.clear();
-        activeN5OriginalStats_ = ThermalPlaneStats{};
+        // Display worker-owned image data; no file loading here.
+        if (!request.sourcePreview.isNull()) {
+            cachedN5OriginalPixmap_ = QPixmap::fromImage(request.sourcePreview);
+            ui->viewerN5Original->setPixmap(cachedN5OriginalPixmap_, false);
+            ui->viewerN5Original->fitToView();
 
-        ui->viewerN5Original->clearImage(
-            tr("Không có preview nguồn cho mục này")
-        );
-        ui->lblN5OriginalInfo->setText(
-            QString("File: %1\n%2")
-                .arg(
-                    sourcePath,
-                    tr("Preview nguồn không khả dụng; xem trạng thái xử lý.")
-                )
-        );
+            QString sourceInfo =
+                QString("File: %1\nẢnh gốc: %2 × %3 px | %4 kênh%5")
+                    .arg(sourcePath)
+                    .arg(request.sourcePreview.width())
+                    .arg(request.sourcePreview.height())
+                    .arg(request.sourceChannels)
+                    .arg(request.sourceChannels > 1 ? QString(" (BGR → Gray8)") : QString(" (Gray8)"));
+
+            if (request.sourceChannels > 1) {
+                sourceInfo += tr("\n[Giữ nguyên biểu diễn, không tự giải mã bảng màu]");
+            }
+
+            activeN5OriginalBaseInfo_ = sourceInfo;
+            activeN5OriginalStats_ = ThermalPlaneStats{};
+            ui->lblN5OriginalInfo->setText(activeN5OriginalBaseInfo_);
+        } else {
+            cachedN5OriginalPixmap_ = QPixmap();
+            activeN5OriginalBaseInfo_.clear();
+            activeN5OriginalStats_ = ThermalPlaneStats{};
+
+            ui->viewerN5Original->clearImage(tr("Không có preview nguồn cho mục này"));
+            ui->lblN5OriginalInfo->setText(
+                QString("File: %1\n%2").arg(sourcePath, tr("Preview nguồn không khả dụng; xem trạng thái xử lý."))
+            );
+        }
+
+        if (success && !resultImage.isNull()) {
+            storePairEnhancementResult(request, resultImage, elapsedMs, modeStr);
+            updateEnhancedResultDisplay(request, resultImage, elapsedMs, modeStr);
+        } else {
+            removePairEnhancementCache(request.pairId);
+            clearN5EnhancedCache();
+            ui->viewerN5Enhanced->clearImage(QString("Lỗi/Bỏ qua: %1").arg(errorMessage));
+            ui->lblN5EnhancedInfo->setText(QString("Cặp: %1 | %2").arg(request.pairId, errorMessage));
+            appendLog(QString("Batch item (%1): pair %2 - %3")
+                          .arg(request.isSkipped ? "Skipped" : "Error", request.pairId, errorMessage));
+        }
+    } else if (success) {
+        // Throttled intermediate step: keep lightweight cache metadata + metrics off viewer path.
+        storePairEnhancementResult(request, QImage(), elapsedMs, modeStr);
     }
 
-    const QString modeStr = thermalModeDisplayName(request.mode);
-
-    if (success && !resultImage.isNull()) {
-        storePairEnhancementResult(request, resultImage, elapsedMs, modeStr);
-        updateEnhancedResultDisplay(request, resultImage, elapsedMs, modeStr);
+    if (matchedEntry != nullptr && rowItem != nullptr) {
+        updateListItemDisplay(rowItem, *matchedEntry);
+    } else {
         refreshPairListDisplayById(request.pairId, index);
+    }
 
-        Phase2Record rec;
-        rec.pairId = request.pairId;
-        rec.datasetId = request.datasetId;
-        rec.processingMethod = modeStr;
-        rec.processingVersion = thermalModeVersion(modeStr);
+    Phase2Record rec;
+    rec.pairId = request.pairId;
+    rec.datasetId = request.datasetId;
+    rec.processingMethod = modeStr;
+    rec.processingVersion = thermalModeVersion(modeStr);
+    if (success) {
         rec.status = "SUCCESS";
         rec.elapsedMs = elapsedMs;
         rec.metrics = request.metrics;
-        phase2Results_.push_back(rec);
     } else {
-        removePairEnhancementCache(request.pairId);
-        refreshPairListDisplayById(request.pairId, index);
-        clearN5EnhancedCache();
-        ui->viewerN5Enhanced->clearImage(QString("Lỗi/Bỏ qua: %1").arg(errorMessage));
-        ui->lblN5EnhancedInfo->setText(QString("Cặp: %1 | %2").arg(request.pairId, errorMessage));
-        appendLog(QString("Batch item (%1): pair %2 - %3").arg(request.isSkipped ? "Skipped" : "Error", request.pairId, errorMessage));
-
-        Phase2Record rec;
-        rec.pairId = request.pairId;
-        rec.datasetId = request.datasetId;
-        rec.processingMethod = modeStr;
-        rec.processingVersion = thermalModeVersion(modeStr);
         rec.status = request.isSkipped ? "SKIPPED" : "ERROR";
         rec.elapsedMs = elapsedMs > 0 ? std::optional<qint64>(elapsedMs) : std::nullopt;
         rec.errorMessage = errorMessage;
-        phase2Results_.push_back(rec);
     }
+    phase2Results_.push_back(std::move(rec));
 
-    ui->prgN5->setRange(0, totalCount);
-    ui->prgN5->setValue(index + 1);
-    ui->prgN5->setVisible(true);
-    ui->btnEnhanceAll->setEnabled(true);
-    ui->lblN5Status->setText(QString("Đang xử lý: %1/%2 | Thành công: %3 | Lỗi: %4 | Bỏ qua: %5")
-                                 .arg(index + 1)
-                                 .arg(totalCount)
-                                 .arg(successCount)
-                                 .arg(errorCount)
-                                 .arg(skippedCount));
+    if (hasVisualPayload
+        || index == 0
+        || (index + 1) >= totalCount
+        || !batchStatusTimer_.isValid()
+        || batchStatusTimer_.elapsed() >= 90) {
+        ui->prgN5->setValue(index + 1);
+        ui->prgN5->setVisible(true);
+        ui->btnEnhanceAll->setEnabled(true);
+        ui->lblN5Status->setText(QString("Đang xử lý: %1/%2 | Thành công: %3 | Lỗi: %4 | Bỏ qua: %5")
+                                     .arg(index + 1)
+                                     .arg(totalCount)
+                                     .arg(successCount)
+                                     .arg(errorCount)
+                                     .arg(skippedCount));
+        batchStatusTimer_.restart();
+    }
 }
 
 void MainWindow::onBatchWorkerFinished(quint64 sessionId,
@@ -2792,6 +2934,7 @@ void MainWindow::onBatchWorkerFinished(quint64 sessionId,
     }
 
     const bool stoppedEarly = (cancelledCount > 0 || isBatchCancelling_);
+    batchPendingUiSteps_.reset();
     isBatchEnhancing_ = false;
     isBatchCancelling_ = false;
     batchTotalCount_ = 0;
@@ -3174,7 +3317,7 @@ void MainWindow::setN5UiState(N5UiState state, qint64 elapsedMs, const QString &
         if (lastThermalMetrics_.valid && !lastMethodStr_.isEmpty()) {
             const bool showingDiff = ui->chkShowDiffMap
                                      && ui->chkShowDiffMap->isChecked()
-                                     && !cachedN5DiffPixmap_.isNull();
+                                     && (!cachedN5DiffPixmap_.isNull() || !cachedN5DiffImage_.isNull());
             ui->lblN5EnhancedInfo->setText(formatEnhancementMetricsSummary(
                 lastMethodStr_,
                 lastElapsedMs_,
@@ -3215,6 +3358,7 @@ void MainWindow::clearN5EnhancedCache()
 {
     cachedN5EnhancedPixmap_ = QPixmap();
     cachedN5DiffPixmap_     = QPixmap();
+    cachedN5DiffImage_      = QImage();
     lastThermalMetrics_     = ThermalEnhancementMetrics{};
     lastMethodStr_.clear();
     lastAppliedParams_.clear();
@@ -3340,9 +3484,8 @@ void MainWindow::updateEnhancedResultDisplay(
     lastThermalMetrics_ = request.metrics;
 
     cachedN5EnhancedPixmap_ = QPixmap::fromImage(resultImage);
-    cachedN5DiffPixmap_     = request.diffHeatmap.isNull()
-                                  ? QPixmap()
-                                  : QPixmap::fromImage(request.diffHeatmap);
+    cachedN5DiffImage_      = request.diffHeatmap;
+    cachedN5DiffPixmap_     = QPixmap();
 
     // Refresh left column with original-plane stats so left = original, right = enhanced.
     if (request.metrics.valid) {
@@ -3362,8 +3505,8 @@ void MainWindow::updateEnhancedResultDisplay(
         }
     }
 
-    // Enable diff-map checkbox only when a real diff exists
-    const bool hasDiff = !cachedN5DiffPixmap_.isNull() && request.metrics.maxAbsDiff > 0;
+    // Enable diff-map checkbox only when a real diff exists; convert QPixmap lazily.
+    const bool hasDiff = !cachedN5DiffImage_.isNull() && request.metrics.maxAbsDiff > 0;
     if (ui->chkShowDiffMap) {
         ui->chkShowDiffMap->setEnabled(hasDiff);
         if (!hasDiff) {
@@ -3375,6 +3518,9 @@ void MainWindow::updateEnhancedResultDisplay(
     const bool showingDiff = hasDiff
                              && ui->chkShowDiffMap
                              && ui->chkShowDiffMap->isChecked();
+    if (showingDiff) {
+        cachedN5DiffPixmap_ = QPixmap::fromImage(cachedN5DiffImage_);
+    }
     const QPixmap &displayPix = showingDiff ? cachedN5DiffPixmap_ : cachedN5EnhancedPixmap_;
     ui->viewerN5Enhanced->setPixmap(displayPix, false);
     ui->viewerN5Enhanced->fitToView();
@@ -3397,7 +3543,7 @@ void MainWindow::storePairEnhancementResult(
     qint64                    elapsedMs,
     const QString            &methodStr)
 {
-    if (request.pairId.isEmpty() || resultImage.isNull()) {
+    if (request.pairId.isEmpty() || (resultImage.isNull() && !request.metrics.valid)) {
         return;
     }
 
@@ -3414,8 +3560,10 @@ void MainWindow::storePairEnhancementResult(
     slot.diffHeatmap = request.diffHeatmap;
     slot.lastUsedSeq = ++cacheAccessSeq_;
 
-    cachedEnhancementPixelBytes_ += slot.imageBytes();
-    trimPairEnhancementPixelCache(key);
+    if (!resultImage.isNull() || !request.diffHeatmap.isNull()) {
+        cachedEnhancementPixelBytes_ += slot.imageBytes();
+        trimPairEnhancementPixelCache(key);
+    }
 }
 
 void MainWindow::trimPairEnhancementPixelCache(const std::string &protectedPairId)
@@ -3524,9 +3672,11 @@ void MainWindow::renderCachedN5Images()
         }
     }
     if (ui->viewerN5Enhanced) {
-        const bool showDiff = ui->chkShowDiffMap
-                              && ui->chkShowDiffMap->isChecked()
-                              && !cachedN5DiffPixmap_.isNull();
+        const bool wantDiff = ui->chkShowDiffMap && ui->chkShowDiffMap->isChecked();
+        if (wantDiff && cachedN5DiffPixmap_.isNull() && !cachedN5DiffImage_.isNull()) {
+            cachedN5DiffPixmap_ = QPixmap::fromImage(cachedN5DiffImage_);
+        }
+        const bool showDiff = wantDiff && !cachedN5DiffPixmap_.isNull();
         const QPixmap &pix = showDiff ? cachedN5DiffPixmap_ : cachedN5EnhancedPixmap_;
         if (!pix.isNull()) {
             ui->viewerN5Enhanced->setPixmap(pix, true);

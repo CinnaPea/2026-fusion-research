@@ -12,10 +12,12 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -506,6 +508,106 @@ int main(int argc, char* argv[])
                     "Single MSGF metrics invalid");
             require(msgfOutReq.appliedParamsSummary.contains("MSGF"),
                     "Single MSGF appliedParamsSummary missing MSGF");
+        }
+
+        // 7. Throttled BatchEnhanceWorkerThread with backpressure still emits valid
+        //    8-metric summaries for every step and images on endpoints without stalling.
+        {
+            std::vector<EnhanceJobRequest> throttledReqs;
+            for (int k = 0; k < 5; ++k) {
+                EnhanceJobRequest r;
+                r.sessionId = 4;
+                r.requestId = 40;
+                r.pairId = QString("roadscene_all_valid_0001_%1").arg(k);
+                r.datasetId = "roadscene";
+                r.datasetRoot = root;
+                r.thermalFullPath = root / validPair.thermalRelativePath();
+                r.mode = ThermalProcessingMode::N5PostHalf;
+                r.pair = validPair;
+                r.validationResult = std::nullopt;
+                throttledReqs.push_back(std::move(r));
+            }
+
+            auto ackCounter = std::make_shared<std::atomic<int>>(0);
+            BatchEnhanceWorkerThread worker(4, 40, std::move(throttledReqs));
+            worker.setUiBackpressure(ackCounter, true, 60000, 2);
+
+            std::vector<CapturedBatchStep> captured;
+            bool done = false;
+            int totalOut = 0, succOut = 0;
+            QEventLoop loop;
+            QObject::connect(&worker, &BatchEnhanceWorkerThread::jobStepFinished,
+                             &app, [&](quint64,
+                                       quint64,
+                                       int,
+                                       int,
+                                       const EnhanceJobRequest& req,
+                                       const QImage& img,
+                                       qint64,
+                                       bool success,
+                                       const QString& err,
+                                       int,
+                                       int,
+                                       int,
+                                       int) {
+                                 ackCounter->fetch_sub(1, std::memory_order_acq_rel);
+                                 captured.push_back({req, img, success, err});
+                             });
+            QObject::connect(&worker, &BatchEnhanceWorkerThread::batchFinished,
+                             &app, [&](quint64, quint64, int t, int s, int, int, int) {
+                                 done = true;
+                                 totalOut = t;
+                                 succOut = s;
+                                 loop.quit();
+                             });
+            worker.start();
+            loop.exec();
+            worker.wait();
+
+            require(done && totalOut == 5 && succOut == 5 && captured.size() == 5,
+                    "Throttled batch count mismatch");
+            require(ackCounter->load() == 0, "Backpressure ack counter did not return to zero");
+            require(!captured.front().resultImage.isNull() && !captured.front().request.diffHeatmap.isNull(),
+                    "Throttled batch first item must retain images");
+            require(!captured.back().resultImage.isNull() && !captured.back().request.diffHeatmap.isNull(),
+                    "Throttled batch last item must retain images");
+            require(captured[2].resultImage.isNull() && captured[2].request.sourcePreview.isNull()
+                        && captured[2].request.diffHeatmap.isNull(),
+                    "Throttled middle step should skip heavy image payload");
+            for (const auto& step : captured) {
+                require(step.success && step.request.metrics.valid
+                            && std::isfinite(step.request.metrics.psnr)
+                            && std::isfinite(step.request.metrics.outputPiqe),
+                        "Throttled batch step missing full 8 metrics");
+            }
+        }
+
+        // 8. FullValidationWorkerThread validates asynchronously off GUI thread.
+        {
+            std::vector<DatasetPair> pairs{validPair, mismatchPair, missingThermalPair};
+            FullValidationWorkerThread valWorker(5, root, pairs);
+            FullValidationJobResult valOut;
+            bool valDone = false;
+            QEventLoop valLoop;
+            QObject::connect(&valWorker, &FullValidationWorkerThread::validationFinished,
+                             &app, [&](const FullValidationJobResult& res) {
+                                 valOut = res;
+                                 valDone = true;
+                                 valLoop.quit();
+                             });
+            valWorker.start();
+            valLoop.exec();
+            valWorker.wait();
+
+            require(valDone && !valOut.cancelled && valOut.errorMessage.isEmpty(),
+                    "FullValidationWorkerThread failed");
+            require(valOut.results.size() == 3, "FullValidationWorkerThread count mismatch");
+            require(valOut.results[0].status() == PairValidationStatus::Valid,
+                    "FullValidationWorkerThread index 0 status mismatch");
+            require(valOut.results[1].status() == PairValidationStatus::DimensionMismatch,
+                    "FullValidationWorkerThread index 1 status mismatch");
+            require(valOut.results[2].status() == PairValidationStatus::MissingThermal,
+                    "FullValidationWorkerThread index 2 status mismatch");
         }
 
         std::cout << "Enhance worker uncached preview/batch contract passed\n";
