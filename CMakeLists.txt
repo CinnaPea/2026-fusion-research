@@ -938,6 +938,37 @@ if(BUILD_TESTING)
             PROPERTIES LABELS "phase2;application;enhancement"
     )
 
+    add_executable(test_enhance_worker
+            tests/application/test_enhance_worker.cpp
+            src/application/application_controller.cpp
+            src/application/application_controller.h
+            src/application/enhance_worker.cpp
+            src/application/enhance_worker.h
+    )
+
+    target_include_directories(test_enhance_worker
+            PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${OpenCV_INCLUDE_DIRS}
+    )
+
+    target_link_libraries(test_enhance_worker
+            PRIVATE
+            qart_core
+            Qt::Core
+            Qt::Widgets
+            ${OpenCV_LIBS}
+    )
+
+    add_test(
+            NAME EnhanceWorkerContract
+            COMMAND test_enhance_worker
+    )
+
+    set_tests_properties(EnhanceWorkerContract
+            PROPERTIES LABELS "phase2;application;enhancement;worker"
+    )
+
     if(QART_PHASE2_N5_FIXTURE_DIR)
         if(NOT EXISTS "${QART_PHASE2_N5_FIXTURE_DIR}/cases.txt")
             message(FATAL_ERROR

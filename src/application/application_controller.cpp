@@ -614,6 +614,28 @@ void ApplicationController::loadCanonicalValidationManifest()
         return result;
     }
 
+    void ApplicationController::cacheValidationResult(
+        const PairValidationResult& result
+    )
+    {
+        validatedResultsCache_.insert_or_assign(
+            result.pair().pairId(),
+            result
+        );
+    }
+
+    std::optional<PairValidationResult>
+    ApplicationController::findCachedValidationResult(
+        const std::string& pairId
+    ) const
+    {
+        const auto it = validatedResultsCache_.find(pairId);
+        if (it == validatedResultsCache_.end()) {
+            return std::nullopt;
+        }
+        return it->second;
+    }
+
     PreviewSelection
     ApplicationController::selectAutomaticPreview(
         const std::vector<DatasetPair>& filteredPairs,

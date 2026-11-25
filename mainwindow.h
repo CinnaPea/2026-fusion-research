@@ -134,11 +134,10 @@ private:
     void loadDatasetFromDirectory(const QString &dirPath);
     void applyFiltersAndModes();
     void displayPair(const PairItemEntry &entry);
-    void renderImageToLabel(QLabel *label, const QString &imagePath, const QString &modality);
+    void updateListItemDisplay(QListWidgetItem *listItem, const PairItemEntry &entry) const;
+    void clearTab1PreviewUi();
 
     // N5 enhancement helpers
-    bool loadThermalSourceIntoN5Viewer(const qart::core::domain::datasets::DatasetPair &pair, bool fitView);
-    void updateQualityN5Tab(const PairItemEntry &entry);
     void setN5UiState(N5UiState state, qint64 elapsedMs = 0, const QString &detailMsg = QString(), const QString &methodOverride = QString());
     void renderCachedN5Images();
     void appendLog(const QString &message);
@@ -193,6 +192,8 @@ private:
     quint64 currentPreviewRequestId_ = 0;
 
     // In-memory decoded preview cache
+    int activePreviewIndex_ = -1;
+    int cachedPreviewIndex_ = -1;
     QImage cachedVisibleImage_;
     QImage cachedThermalImage_;
 

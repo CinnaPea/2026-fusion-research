@@ -139,6 +139,16 @@ public:
         const core::domain::datasets::DatasetPair& pair
     );
 
+    void cacheValidationResult(
+        const core::domain::validation::PairValidationResult& result
+    );
+
+    [[nodiscard]]
+    std::optional<core::domain::validation::PairValidationResult>
+    findCachedValidationResult(
+        const std::string& pairId
+    ) const;
+
     [[nodiscard]]
     bool loadDataset(
         const std::filesystem::path& inputPath,

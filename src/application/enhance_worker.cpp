@@ -388,7 +388,19 @@ void PreviewWorkerThread::run()
     }
 
     try {
-        if (isInterruptionRequested() || !request_.pair.has_value()) return;
+        if (isInterruptionRequested()) return;
+
+        if (!request_.pair.has_value()) {
+            result.errorMessage = "Thiếu thông tin cặp ảnh trong yêu cầu preview.";
+            emit previewFinished(result);
+            return;
+        }
+
+        if (request_.datasetRoot.empty()) {
+            result.errorMessage = "Cannot validate pair: dataset root is empty.";
+            emit previewFinished(result);
+            return;
+        }
 
         // Validate using the root captured from the GUI session.
         if (request_.validationResult.has_value()) {
